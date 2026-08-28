@@ -4,9 +4,9 @@ dist/
 dist-server/
 coverage/
 .DS_Store
-*.log
-.env
-.env.*
+# Environment variables
+# .env is tracked for private repo deployment
+!.env
 !.env.example
 
 # Development artifacts
