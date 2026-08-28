@@ -1,0 +1,20 @@
+node_modules/
+build/
+dist/
+dist-server/
+coverage/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+
+# Development artifacts
+next_prompt.txt
+metadata.json
+
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+data/

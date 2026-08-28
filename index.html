@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" style="background-color: var(--brand-bg); color: var(--text-white-val);">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0A0A0A" />
+    <title>GameTrack — Personal Video Game Registry & Library Manager</title>
+    <meta name="description" content="Manage your game backlog, track playtime, analyze your stats, and discover new video games using the IGDB database integration." />
+    <script>
+      // Apply the persisted theme before first paint so the UI never flashes
+      // the default theme (kept inline so it runs before the stylesheet).
+      (function () {
+        try {
+          var c = JSON.parse(localStorage.getItem("gametrack_customization_settings") || "{}");
+          if (c && typeof c.theme === "string") {
+            document.documentElement.dataset.theme = c.theme;
+            var colors = {
+              noir: "#0A0A0A",
+              crimson: "#0D0606",
+              paper: "#F4F1EA",
+              arctic: "#EEF1F4"
+            };
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta && colors[c.theme]) meta.setAttribute("content", colors[c.theme]);
+          }
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
+    <script>
+      // Watchdog: even if the whole app crashes, lift the boot screen after
+      // 15s so the page can never be stuck on it.
+      (function () {
+        setTimeout(function () {
+          var boot = document.getElementById("boot-screen");
+          if (boot) boot.remove();
+        }, 15000);
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body style="background-color: var(--brand-bg); color: var(--text-white-val); margin: 0;">
+    <div id="theme-reboot" aria-hidden="true">
+      <p id="theme-reboot-label">REBOOTING</p>
+    </div>
+    <div id="boot-screen" aria-hidden="true" style="position: fixed; inset: 0; z-index: 9998; display: flex; align-items: center; justify-content: center; background: #000;">
+      <p id="boot-label">Loading GAMETRACK</p>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

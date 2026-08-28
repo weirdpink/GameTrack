@@ -1,0 +1,45 @@
+import { Component, StrictMode, type ReactNode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { MotionConfig } from 'motion/react';
+import App from './App.tsx';
+import './index.css';
+
+// If anything inside the app throws during boot, lift the boot screen and
+// show a minimal terminal-style error instead of a stuck loading screen.
+class BootBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    document.getElementById("boot-screen")?.remove();
+    console.error("GameTrack crashed:", error);
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="h-screen w-screen flex items-center justify-center bg-brand-bg">
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.3em] text-red-400">
+            FATAL ERROR — CHECK THE CONSOLE
+          </p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    {/* reducedMotion="user" disables transform/opacity animations for users
+        who prefer reduced motion (OS-level setting). */}
+    <MotionConfig reducedMotion="user">
+      <BootBoundary>
+        <App />
+      </BootBoundary>
+    </MotionConfig>
+  </StrictMode>,
+);

@@ -1,0 +1,349 @@
+@import "tailwindcss";
+
+/* ─── Theme tokens ─────────────────────────────────────────────────────────
+   Every color the UI uses flows from these variables. `:root` holds the
+   default theme (Terminal Noir); `[data-theme="..."]` blocks override the
+   whole set, so a theme flip is a single attribute change. */
+
+:root {
+  color-scheme: dark;
+
+  /* page background */
+  --brand-bg: #0A0A0A;
+  /* brand accent + derived states */
+  --brand-accent: #FDE047;
+  --brand-accent-hover: #FACC15;
+  --brand-accent-ink: #000000;
+  /* borders & secondary text */
+  --brand-border: #27272A;
+  --brand-muted: #A1A1AA;
+  /* primary/secondary text tokens */
+  --text-white-val: #FFFFFF;
+  --text-muted-val: #A1A1AA;
+  /* text on colored fills (red/destructive buttons) — stays white in every theme */
+  --text-on-color: #FFFFFF;
+  /* zinc scale (surfaces) */
+  --zinc-500-val: #71717A;
+  --zinc-600-val: #52525B;
+  --zinc-700-val: #3F3F46;
+  --zinc-800-val: #27272A;
+  --zinc-900-val: #18181B;
+  --zinc-950-val: #09090B;
+  --zinc-200-val: #E4E4E7;
+  /* status palette (semantic colors, re-tuned per theme) */
+  --emerald-400-val: #34D399;
+  --emerald-500-val: #10B981;
+  --fuchsia-400-val: #E879F9;
+  --fuchsia-500-val: #D946EF;
+  --red-400-val: #F87171;
+  --red-500-val: #EF4444;
+  --red-600-val: #DC2626;
+  --amber-400-val: #FBBF24;
+  --amber-500-val: #F59E0B;
+  /* accent glow (selected "completed" cards) */
+  --brand-glow: rgba(250, 204, 21, 0.12);
+  --brand-glow-strong: rgba(250, 204, 21, 0.25);
+  /* status glows */
+  --status-glow-emerald: rgba(16, 185, 129, 0.12);
+  --status-glow-emerald-strong: rgba(16, 185, 129, 0.25);
+  --status-glow-fuchsia: rgba(217, 70, 239, 0.12);
+  --status-glow-fuchsia-strong: rgba(217, 70, 239, 0.25);
+  /* "current session" statement card on the dashboard */
+  --session-bg: #FFFFFF;
+  --session-text: #000000;
+  --session-subtext: #4B5563;
+  /* landing page grid texture */
+  --grid-line: rgba(255, 255, 255, 0.035);
+}
+
+/* ─── Crimson — deep charcoal red with alert crimson ─────────────────────── */
+:root[data-theme="crimson"] {
+  --brand-bg: #0C0505;
+  --brand-accent: #F87171;
+  --brand-accent-hover: #FCA5A5;
+  --brand-accent-ink: #2B0606;
+  --brand-border: #3A2323;
+  --brand-muted: #B89B9B;
+  --text-white-val: #FFFFFF;
+  --text-muted-val: #B89B9B;
+  --zinc-500-val: #6B4A4A;
+  --zinc-600-val: #4E3333;
+  --zinc-700-val: #3A2323;
+  --zinc-800-val: #2B1A1A;
+  --zinc-900-val: #1E1111;
+  --zinc-950-val: #120909;
+  --brand-glow: rgba(248, 113, 113, 0.14);
+  --brand-glow-strong: rgba(248, 113, 113, 0.28);
+}
+
+/* ─── Paper — warm paper with ink and terracotta (light theme) ───────────── */
+:root[data-theme="paper"] {
+  color-scheme: light;
+  --brand-bg: #F4F1EA;
+  --brand-accent: #C2410C;
+  --brand-accent-hover: #A93A0D;
+  --brand-accent-ink: #FDF9F4;
+  --brand-border: #DCD7C9;
+  --brand-muted: #6B675C;
+  --text-white-val: #191712;
+  --text-muted-val: #6B675C;
+  --zinc-500-val: #8F897A;
+  --zinc-600-val: #8F897A;
+  --zinc-700-val: #D6D1C4;
+  --zinc-800-val: #E2DED4;
+  --zinc-900-val: #EDEAE2;
+  --zinc-950-val: #FBFAF6;
+  --zinc-200-val: #6B675C;
+  --emerald-400-val: #059669;
+  --emerald-500-val: #047857;
+  --fuchsia-400-val: #C026D3;
+  --fuchsia-500-val: #A21CAF;
+  --red-400-val: #DC2626;
+  --red-500-val: #DC2626;
+  --red-600-val: #B91C1C;
+  --amber-400-val: #B45309;
+  --amber-500-val: #B45309;
+  --brand-glow: rgba(90, 70, 40, 0.08);
+  --brand-glow-strong: rgba(90, 70, 40, 0.16);
+  --status-glow-emerald: rgba(4, 120, 87, 0.10);
+  --status-glow-emerald-strong: rgba(4, 120, 87, 0.18);
+  --status-glow-fuchsia: rgba(162, 28, 175, 0.10);
+  --status-glow-fuchsia-strong: rgba(162, 28, 175, 0.18);
+  --session-bg: #191712;
+  --session-text: #F4F1EA;
+  --session-subtext: #A9A394;
+  --grid-line: rgba(25, 23, 18, 0.06);
+}
+
+/* ─── Arctic — cool slate with arctic blue (light theme) ─────────────────── */
+:root[data-theme="arctic"] {
+  color-scheme: light;
+  --brand-bg: #EEF1F4;
+  --brand-accent: #1D4ED8;
+  --brand-accent-hover: #1E40AF;
+  --brand-accent-ink: #FFFFFF;
+  --brand-border: #D8DDE3;
+  --brand-muted: #5B6672;
+  --text-white-val: #16181D;
+  --text-muted-val: #5B6672;
+  --zinc-500-val: #9AA5B1;
+  --zinc-600-val: #9AA5B1;
+  --zinc-700-val: #D5DAE1;
+  --zinc-800-val: #E2E7ED;
+  --zinc-900-val: #EDF1F5;
+  --zinc-950-val: #FBFCFE;
+  --zinc-200-val: #5B6672;
+  --emerald-400-val: #047857;
+  --emerald-500-val: #047857;
+  --fuchsia-400-val: #A21CAF;
+  --fuchsia-500-val: #A21CAF;
+  --red-400-val: #DC2626;
+  --red-500-val: #DC2626;
+  --red-600-val: #B91C1C;
+  --amber-400-val: #B45309;
+  --amber-500-val: #B45309;
+  --brand-glow: rgba(29, 78, 216, 0.08);
+  --brand-glow-strong: rgba(29, 78, 216, 0.16);
+  --status-glow-emerald: rgba(4, 120, 87, 0.10);
+  --status-glow-emerald-strong: rgba(4, 120, 87, 0.18);
+  --status-glow-fuchsia: rgba(162, 28, 175, 0.10);
+  --status-glow-fuchsia-strong: rgba(162, 28, 175, 0.18);
+  --session-bg: #16181D;
+  --session-text: #F8FAFC;
+  --session-subtext: #9AA5B1;
+  --grid-line: rgba(22, 24, 29, 0.06);
+}
+
+/* Map tokens into Tailwind's color system (Tailwind v4) */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-brand-bg: var(--brand-bg);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-accent-hover: var(--brand-accent-hover);
+  --color-brand-accent-ink: var(--brand-accent-ink);
+  --color-brand-border: var(--brand-border);
+  --color-brand-muted: var(--brand-muted);
+  
+  --color-white: var(--text-white-val);
+  --color-brand-on-color: var(--text-on-color);
+  --color-zinc-200: var(--zinc-200-val);
+  --color-zinc-300: var(--text-muted-val);
+  --color-zinc-400: var(--text-muted-val);
+  --color-zinc-500: var(--zinc-500-val);
+  --color-zinc-600: var(--zinc-600-val);
+  --color-zinc-700: var(--zinc-700-val);
+  --color-zinc-800: var(--zinc-800-val);
+  --color-zinc-900: var(--zinc-900-val);
+  --color-zinc-950: var(--zinc-950-val);
+
+  --color-emerald-400: var(--emerald-400-val);
+  --color-emerald-500: var(--emerald-500-val);
+  --color-fuchsia-400: var(--fuchsia-400-val);
+  --color-fuchsia-500: var(--fuchsia-500-val);
+  --color-red-400: var(--red-400-val);
+  --color-red-500: var(--red-500-val);
+  --color-red-600: var(--red-600-val);
+  --color-amber-400: var(--amber-400-val);
+  --color-amber-500: var(--amber-500-val);
+
+  --color-session-bg: var(--session-bg);
+  --color-session-text: var(--session-text);
+  --color-session-subtext: var(--session-subtext);
+}
+
+html {
+  background-color: var(--brand-bg);
+}
+
+/* Custom layout helper animations and marquee */
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 25s linear infinite;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+/* Hide scrollbars on carousels while keeping scrollability */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none;
+  }
+
+  /* Kill remaining CSS transitions/animations for reduced-motion users */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Full-screen blackout shown while a theme is being applied.
+   Quick fade-in to black with the old theme still on screen, then the
+   theme swaps underneath and a smooth fade-out reveals the new one. */
+#theme-reboot {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#theme-reboot.active {
+  opacity: 1;
+  pointer-events: all;
+  transition: opacity 0.18s ease-in;
+}
+
+#theme-reboot-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #A1A1AA;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  pointer-events: none;
+  user-select: none;
+}
+
+#theme-reboot-label.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Boot screen — the same look and feel as the theme-changer blackout.
+   It lives in index.html (solid black inline) so the first paint is black
+   before the stylesheet even loads. The label fades+rises in like the
+   theme-changer label, then the whole screen fades out to reveal the app. */
+#boot-screen.boot-screen-hide {
+  opacity: 0;
+  transition: opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+#boot-label {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #A1A1AA;
+  white-space: nowrap;
+  user-select: none;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  pointer-events: none;
+}
+
+#boot-label.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Toast auto-dismiss countdown — drains left-to-right over the toast's
+   lifetime and pauses while hovered so readers have time. */
+.toast-progress {
+  height: 2px;
+  transform-origin: left;
+  animation-name: toast-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.toast-progress[data-type="success"] {
+  background-color: var(--brand-accent);
+}
+
+.toast-progress[data-type="error"] {
+  background-color: var(--red-500-val, #EF4444);
+}
+
+.toast-progress[data-type="info"] {
+  background-color: rgba(255, 255, 255, 0.25);
+}
+
+*:hover > .toast-progress {
+  animation-play-state: paused;
+}
+
+@keyframes toast-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
