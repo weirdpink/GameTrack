@@ -838,11 +838,6 @@ const CuratedGameCard = React.memo<{
             </button>
           </div>
         )}
-        {game.critic_score && (
-          <div className="absolute bottom-2 right-2 bg-zinc-950/90 backdrop-blur-sm px-1.5 py-0.5 text-[10px] font-mono font-black text-brand-accent border border-brand-border shadow-sm">
-            {game.critic_score}
-          </div>
-        )}
       </div>
       <h5 className="font-bold text-white text-xs uppercase tracking-tight mt-2 line-clamp-1">{game.title}</h5>
       <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-brand-muted mt-0.5">

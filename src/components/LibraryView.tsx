@@ -243,7 +243,7 @@ export const LibraryView: React.FC = () => {
       : [...rest.slice(0, firstVisible), ...draft, ...rest.slice(firstVisible)];
 
     // The server requires the order to cover the whole library. If the
-    // library changed mid-drag (auto Steam sync, import), the snapshot no
+    // library changed mid-drag (Steam sync, import), the snapshot no
     // longer matches — skip the save and let a fresh fetch restore reality.
     if (fullOrder.length !== games.length) {
       setDragOrder(null);
@@ -601,7 +601,6 @@ export const LibraryView: React.FC = () => {
               onDragOverCard={handleDragOverCard}
               onDragEnd={handleDragEnd}
               showPlaytime={customizations.showPlaytimeBadge}
-              showRating={customizations.showRatingBadge}
               selectMode={selectMode}
               selected={selectedIds.has(game.id)}
               onToggleSelect={toggleSelect}
@@ -623,14 +622,13 @@ interface LibraryGameCardProps {
   onDragOverCard?: (game: Game) => void;
   onDragEnd?: () => void;
   showPlaytime?: boolean;
-  showRating?: boolean;
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
 }
 
 const LibraryGameCard = React.memo<LibraryGameCardProps>(({ 
-  game, onClick, reorderable, isDragging, onDragStart, onDragOverCard, onDragEnd, showPlaytime = true, showRating = true,
+  game, onClick, reorderable, isDragging, onDragStart, onDragOverCard, onDragEnd, showPlaytime = true,
   selectMode = false, selected = false, onToggleSelect 
 }) => {
   const handleCardClick = () => {
@@ -696,7 +694,7 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
         {/* Overlay details - only shown on hover-supporting devices */}
         {!selectMode && (
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-end p-4 pointer-events-none">
-            <p className="text-[11px] text-brand-accent font-mono font-bold leading-normal uppercase">
+            <p className="text-[11px] text-brand-accent font-mono font-bold leading-normal uppercase whitespace-nowrap overflow-hidden text-ellipsis">
               {(game.genres || []).slice(0, 2).join(" // ")}
             </p>
             <p className="text-zinc-200 text-[11px] line-clamp-3 mt-1 leading-relaxed font-sans">
@@ -704,22 +702,18 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
             </p>
           </div>
         )}
-
-        {/* Score Floating Badge */}
-        {showRating && game.critic_score != null && (
-          <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-mono font-black text-brand-accent border border-brand-border z-10 shadow-sm">
-            {game.critic_score}
-          </div>
-        )}
       </div>
 
       {/* Game Metadata Info */}
-      <div className="p-4 flex-1 flex flex-col justify-between">
-        <div>
+      <div className="p-4 flex-1 flex flex-col justify-between min-w-0">
+        <div className="min-w-0">
           <h4 className={`font-bold text-sm transition-colors line-clamp-1 uppercase tracking-tight ${game.status === "completed" ? "text-brand-accent" : "text-white group-hover:text-brand-accent"}`}>
             {game.title}
           </h4>
-          <p className="text-[11px] text-brand-muted mt-0.5 font-mono uppercase font-bold">
+          <p
+            title={`${game.year ? `${game.year} // ` : ""}${(game.genres || [])[0] || "General"}`}
+            className="text-[11px] text-brand-muted mt-0.5 font-mono uppercase font-bold whitespace-nowrap overflow-hidden text-ellipsis"
+          >
             {game.year ? `${game.year} // ` : ""}{(game.genres || [])[0] || "General"}
           </p>
         </div>

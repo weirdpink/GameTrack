@@ -215,7 +215,6 @@ const DEFAULT_CUSTOMIZATIONS: CustomizationSettings = {
   libraryColumns: 5,
   discoverColumns: 6,
   showPlaytimeBadge: true,
-  showRatingBadge: true,
 };
 
 function loadSavedCustomizations(): CustomizationSettings {
@@ -226,7 +225,6 @@ function loadSavedCustomizations(): CustomizationSettings {
       libraryColumns: [3, 4, 5, 6, 7].includes(parsed.libraryColumns) ? parsed.libraryColumns : 5,
       discoverColumns: [3, 4, 5, 6, 7].includes(parsed.discoverColumns) ? parsed.discoverColumns : 6,
       showPlaytimeBadge: typeof parsed.showPlaytimeBadge === "boolean" ? parsed.showPlaytimeBadge : true,
-      showRatingBadge: typeof parsed.showRatingBadge === "boolean" ? parsed.showRatingBadge : true,
     };
   } catch {
     return DEFAULT_CUSTOMIZATIONS;

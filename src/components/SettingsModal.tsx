@@ -3,9 +3,36 @@ import { useGameTrackStore } from "../store";
 import { motion, AnimatePresence } from "motion/react";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { 
-  Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, ChevronDown
+  Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, ChevronDown, Info
 } from "lucide-react";
 import { THEMES } from "../themes";
+
+// Label + info button that reveals its description on demand, so long
+// explanations don't eat vertical space by default.
+const CollapsibleDesc: React.FC<{ label: string; text: string }> = React.memo(({ label, text }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">{label}</p>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label={open ? `Hide description for ${label}` : `Show description for ${label}`}
+          title={open ? "Hide description" : "Show description"}
+          className="flex items-center justify-center text-brand-muted hover:text-brand-accent transition-colors cursor-pointer shrink-0"
+        >
+          <Info className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      {open && (
+        <p className="text-[11px] text-zinc-400 font-mono leading-relaxed">{text}</p>
+      )}
+    </div>
+  );
+});
+CollapsibleDesc.displayName = "CollapsibleDesc";
 
 export const SettingsModal: React.FC = React.memo(() => {
   const { 
@@ -199,35 +226,34 @@ export const SettingsModal: React.FC = React.memo(() => {
                 <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">01 // Steam Identity</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-3">
                   {steamSettings?.steamId ? (
-                    <>
-                      <div className="flex items-center gap-3.5">
-                        <div className="shrink-0 w-12 h-12 bg-zinc-900 border border-brand-border flex items-center justify-center overflow-hidden">
-                          {steamSettings.avatarUrl ? (
-                            <img src={steamSettings.avatarUrl} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <Joystick className="w-5 h-5 text-brand-accent" />
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-mono font-black uppercase tracking-widest text-white truncate">
-                            {steamSettings.steamName || "Steam account"}
-                          </p>
-                          <p className="text-[11px] font-mono text-brand-muted uppercase tracking-wider mt-0.5 truncate">
-                            ID64 {steamSettings.steamId}
-                          </p>
-                        </div>
-                        <span className="shrink-0 ml-auto w-2 h-2 bg-emerald-500 animate-[pulse_2s_ease-in-out_infinite]" title="Connected" />
+                    <div className="flex items-center gap-3">
+                      <div className="shrink-0 w-9 h-9 bg-zinc-900 border border-brand-border flex items-center justify-center overflow-hidden">
+                        {steamSettings.avatarUrl ? (
+                          <img src={steamSettings.avatarUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <Joystick className="w-4 h-4 text-brand-accent" />
+                        )}
                       </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-mono font-black uppercase tracking-widest text-white truncate">
+                          {steamSettings.steamName || "Steam account"}
+                        </p>
+                        <p className="text-[10px] font-mono text-brand-muted uppercase tracking-wider mt-0.5 truncate">
+                          ID64 {steamSettings.steamId}
+                        </p>
+                      </div>
+                      <span className="shrink-0 w-2 h-2 bg-emerald-500 animate-[pulse_2s_ease-in-out_infinite]" title="Connected" />
                       <a
                         href={steamSettings.profile || `https://steamcommunity.com/profiles/${steamSettings.steamId}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/60 text-brand-accent text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                        aria-label="View Steam profile"
+                        title="View Steam profile"
+                        className="shrink-0 w-7 h-7 flex items-center justify-center bg-zinc-900 border border-brand-border text-brand-muted hover:text-brand-accent hover:border-brand-accent/60 transition-colors cursor-pointer"
                       >
-                        <ExternalLink className="w-3 h-3" />
-                        View Steam Profile
+                        <ExternalLink className="w-3.5 h-3.5" />
                       </a>
-                    </>
+                    </div>
                   ) : (
                     <p className="text-[11px] font-mono text-brand-muted uppercase tracking-wider leading-relaxed">
                       // No Steam account linked yet
@@ -236,9 +262,101 @@ export const SettingsModal: React.FC = React.memo(() => {
                 </div>
               </div>
 
-              {/* 2. Interface Theme */}
+              {/* 2. Steam Link */}
               <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">02 // Interface Theme</h4>
+                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">02 // Steam Link</h4>
+                <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
+                  <CollapsibleDesc
+                    label="Library Auto-Sync"
+                    text="Link your Steam account to import your owned games automatically — titles, cover art, genres and playtime. Non-Steam games stay manual."
+                  />
+
+                  {steamSettings?.keySet && steamSettings?.steamId && !relinkMode ? (
+                    <>
+                      <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-zinc-900 border border-brand-border">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-mono text-white uppercase font-black tracking-wider truncate">
+                            {steamSettings.steamName || "Steam account"}
+                          </p>
+                          <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider mt-0.5 truncate">
+                            {steamSettings.profile}
+                          </p>
+                          <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider mt-0.5">
+                            Last sync: {formatLastSync(steamSettings.lastSync)}
+                          </p>
+                        </div>
+                        <span className="shrink-0 w-2 h-2 bg-emerald-500 animate-[pulse_2s_ease-in-out_infinite]" title="Connected" />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRelinkMode(true);
+                            setSteamProfile("");
+                          }}
+                          className="flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/50 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
+                        >
+                          <Unlink className="w-4 h-4 text-brand-accent" />
+                          Re-link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSyncSteam}
+                          disabled={syncingSteam}
+                          className="flex items-center justify-center gap-2 py-2.5 bg-brand-accent hover:bg-brand-accent-hover disabled:opacity-40 disabled:hover:bg-brand-accent text-brand-accent-ink text-xs font-black uppercase tracking-wider rounded-none border border-transparent transition-all cursor-pointer"
+                        >
+                          {syncingSteam ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                          {syncingSteam ? "Syncing..." : "Sync Steam"}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="space-y-1">
+                        <label htmlFor="settings-steam-profile" className="block text-[8px] font-mono uppercase tracking-widest text-brand-muted font-bold">Steam Profile URL or ID64</label>
+                        <input
+                          id="settings-steam-profile"
+                          type="text"
+                          autoComplete="off"
+                          value={steamProfile}
+                          onChange={(e) => setSteamProfile(e.target.value)}
+                          placeholder="https://steamcommunity.com/id/yourname"
+                          className="w-full px-3 py-2 bg-zinc-950 border border-brand-border text-xs font-mono focus:outline-none focus:border-brand-accent text-white"
+                        />
+                        <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider pt-0.5">
+                          // API key is read from .env on the server
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={handleConnectSteam}
+                          disabled={connectingSteam || syncingSteam}
+                          className="flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/50 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {connectingSteam ? <Loader2 className="w-4 h-4 animate-spin text-brand-accent" /> : <Link2 className="w-4 h-4 text-brand-accent" />}
+                          Connect
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSyncSteam}
+                          disabled={!steamSettings?.keySet || syncingSteam || connectingSteam}
+                          className="flex items-center justify-center gap-2 py-2.5 bg-brand-accent hover:bg-brand-accent-hover disabled:opacity-40 disabled:hover:bg-brand-accent text-brand-accent-ink text-xs font-black uppercase tracking-wider rounded-none border border-transparent transition-all cursor-pointer"
+                        >
+                          {syncingSteam ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                          {syncingSteam ? "Syncing..." : "Sync Steam"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* 3. Interface Theme */}
+              <div className="space-y-3.5">
+                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">03 // Interface Theme</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-3">
                   <div className="grid grid-cols-2 gap-2">
                     {THEMES.map((theme) => {
@@ -283,9 +401,9 @@ export const SettingsModal: React.FC = React.memo(() => {
                 </div>
               </div>
 
-              {/* 3. Display & Layout */}
+              {/* 4. Display & Layout */}
               <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">03 // Display & Layout</h4>
+                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">04 // Display & Layout</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
                   
                   {/* Library Grid Columns */}
@@ -371,40 +489,14 @@ export const SettingsModal: React.FC = React.memo(() => {
                         />
                       </button>
                     </label>
-
-                    <label className="flex items-center justify-between cursor-pointer group">
-                      <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
-                        Show Rating Badges
-                      </span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={customizations.showRatingBadge}
-                        aria-label="Toggle rating badges"
-                        onClick={() => updateCustomizations({ showRatingBadge: !customizations.showRatingBadge })}
-                        className={`relative w-10 h-5.5 shrink-0 border transition-colors cursor-pointer ${
-                          customizations.showRatingBadge
-                            ? "bg-brand-accent border-brand-accent"
-                            : "bg-zinc-900 border-brand-border"
-                        }`}
-                      >
-                        <span
-                          className={`absolute top-1/2 -translate-y-1/2 w-4 h-3.5 transition-all duration-200 ${
-                            customizations.showRatingBadge
-                              ? "left-[21px] bg-brand-accent-ink"
-                              : "left-0.5 bg-brand-muted"
-                          }`}
-                        />
-                      </button>
-                    </label>
                   </div>
 
                 </div>
               </div>
 
-              {/* 4. Data Import */}
+              {/* 5. Data Import */}
               <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">04 // Data Import</h4>
+                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">05 // Data Import</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
                   
                   <div className="space-y-2">
@@ -447,13 +539,14 @@ export const SettingsModal: React.FC = React.memo(() => {
                 </div>
               </div>
 
-              {/* 5. Custom Platform Tags */}
+              {/* 6. Custom Platform Tags */}
               <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">05 // Custom Platform Tags</h4>
+                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">06 // Custom Platform Tags</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
-                  <p className="text-[11px] text-zinc-400 font-mono leading-relaxed">
-                    Add your own ownership tags (stores, launchers, retro hardware…) — they appear in every game's platform checklist alongside the built-ins.
-                  </p>
+                  <CollapsibleDesc
+                    label="Custom Tags"
+                    text="Add your own ownership tags (stores, launchers, retro hardware…) — they appear in every game's platform checklist alongside the built-ins."
+                  />
 
                   <div className="flex gap-2">
                     <input
@@ -502,99 +595,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                 </div>
               </div>
 
-              {/* 6. Steam Link */}
-              <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">06 // Steam Link</h4>
-                <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
-                  <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Library Auto-Sync</p>
-                  <p className="text-[11px] text-zinc-400 font-mono leading-relaxed">
-                    Link your Steam account to import your owned games automatically — titles, cover art, genres and playtime. Non-Steam games stay manual.
-                  </p>
-
-                  {steamSettings?.keySet && steamSettings?.steamId && !relinkMode ? (
-                    <>
-                      <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-zinc-900 border border-brand-border">
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-mono text-white uppercase font-black tracking-wider truncate">
-                            {steamSettings.steamName || "Steam account"}
-                          </p>
-                          <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider mt-0.5 truncate">
-                            {steamSettings.profile}
-                          </p>
-                          <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider mt-0.5">
-                            Last sync: {formatLastSync(steamSettings.lastSync)}
-                          </p>
-                        </div>
-                        <span className="shrink-0 w-2 h-2 bg-emerald-500 animate-[pulse_2s_ease-in-out_infinite]" title="Connected" />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRelinkMode(true);
-                            setSteamProfile("");
-                          }}
-                          className="flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/50 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
-                        >
-                          <Unlink className="w-4 h-4 text-brand-accent" />
-                          Re-link
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSyncSteam}
-                          disabled={syncingSteam}
-                          className="flex items-center justify-center gap-2 py-2.5 bg-brand-accent hover:bg-brand-accent-hover disabled:opacity-40 disabled:hover:bg-brand-accent text-brand-accent-ink text-xs font-black uppercase tracking-wider rounded-none border border-transparent transition-all cursor-pointer"
-                        >
-                          {syncingSteam ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                          {syncingSteam ? "Syncing..." : "Sync Steam"}
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="space-y-1">
-                        <label htmlFor="settings-steam-profile" className="block text-[8px] font-mono uppercase tracking-widest text-brand-muted font-bold">Steam Profile URL or ID64</label>
-                        <input
-                          id="settings-steam-profile"
-                          type="text"
-                          autoComplete="off"
-                          value={steamProfile}
-                          onChange={(e) => setSteamProfile(e.target.value)}
-                          placeholder="https://steamcommunity.com/id/yourname"
-                          className="w-full px-3 py-2 bg-zinc-950 border border-brand-border text-xs font-mono focus:outline-none focus:border-brand-accent text-white"
-                        />
-                        <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider pt-0.5">
-                          // API key is read from .env on the server
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={handleConnectSteam}
-                          disabled={connectingSteam || syncingSteam}
-                          className="flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/50 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer disabled:opacity-50"
-                        >
-                          {connectingSteam ? <Loader2 className="w-4 h-4 animate-spin text-brand-accent" /> : <Link2 className="w-4 h-4 text-brand-accent" />}
-                          Connect
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSyncSteam}
-                          disabled={!steamSettings?.keySet || syncingSteam || connectingSteam}
-                          className="flex items-center justify-center gap-2 py-2.5 bg-brand-accent hover:bg-brand-accent-hover disabled:opacity-40 disabled:hover:bg-brand-accent text-brand-accent-ink text-xs font-black uppercase tracking-wider rounded-none border border-transparent transition-all cursor-pointer"
-                        >
-                          {syncingSteam ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                          {syncingSteam ? "Syncing..." : "Sync Steam"}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* 6. Danger zone */}
+              {/* 7. Danger zone */}
               <div className="space-y-3.5">
                 <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-red-500">07 // System Destruct</h4>
                 <div className="border border-red-500 bg-red-500/5 p-4.5 space-y-3">

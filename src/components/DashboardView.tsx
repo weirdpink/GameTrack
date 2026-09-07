@@ -249,11 +249,6 @@ export const DashboardView: React.FC = React.memo(() => {
                       alt={game.title}
                       className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200 transform-gpu will-change-transform"
                     />
-                    {game.critic_score && (
-                      <div className="absolute top-4 left-4 bg-zinc-950/90 border border-brand-accent px-2.5 py-1 font-mono text-xs font-black text-brand-accent uppercase tracking-wider shadow-lg">
-                        MC: {game.critic_score}
-                      </div>
-                    )}
                   </div>
 
                   {/* Right Side: Info & Actions */}

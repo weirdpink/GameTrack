@@ -390,11 +390,6 @@ const WishlistSearchCard = React.memo<WishlistSearchCardProps>(({ game, alreadyW
         alt={game.title}
         className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200 transform-gpu will-change-transform"
       />
-      {game.critic_score != null && (
-        <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-mono font-black text-brand-accent border border-brand-border shadow-sm">
-          MC: {game.critic_score}
-        </div>
-      )}
     </div>
     <div className="p-4 flex-1 flex flex-col justify-between">
       <div>
@@ -482,11 +477,6 @@ const WishlistItemCard = React.memo<WishlistItemCardProps>(({
           alt={item.title}
           className="w-full h-full object-cover"
         />
-        {item.critic_score != null && (
-          <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-mono font-black text-brand-accent border border-brand-border shadow-sm">
-            MC: {item.critic_score}
-          </div>
-        )}
 
         {/* Hover actions overlay — only in normal non-select mode */}
         {!selectMode && (

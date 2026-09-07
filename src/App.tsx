@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { useGameTrackStore } from "./store";
 import Toast from "./components/Toast";
 import NotFoundView from "./components/NotFoundView";
-import LandingView from "./components/LandingView";
 import DashboardView from "./components/DashboardView";
 import LibraryView from "./components/LibraryView";
 import DiscoverView from "./components/DiscoverView";
@@ -17,27 +16,17 @@ import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictMo
 import { Menu, X, Settings, Joystick } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 
-const ENTERED_KEY = "gametrack_entered";
-
 export default function App() {
   const { 
     activeTab, setActiveTab, fetchGames, fetchAnalytics,
     fetchTrending, fetchDiscoverLists,
     steamSettings, setSettingsOpen, fetchSteamSettings,
     fetchWishlist, fetchCustomPlatforms,
-    showToast,
     loadingGames,
   } = useGameTrackStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pathname] = useState(() => window.location.pathname);
   const [booted, setBooted] = useState(false);
-  const [entered, setEntered] = useState(() => {
-    try {
-      return localStorage.getItem(ENTERED_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
 
   const mainRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -48,39 +37,6 @@ export default function App() {
       mainRef.current.scrollTo({ top: 0, behavior: "instant" });
     }
   }, [activeTab]);
-
-  // Live Steam sync notifications pushed by the server (auto-sync runs on a
-  // 5-minute schedule; EventSource auto-reconnects after interruptions).
-  useEffect(() => {
-    const es = new EventSource("/api/events");
-    es.addEventListener("steam-sync", (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.status === "started") {
-          showToast("Steam auto-sync in progress", "info", "Pulling library from Steam…");
-        } else if (data.status === "complete") {
-          showToast(
-            "Steam auto-sync complete",
-            "success",
-            `${data.imported} imported · ${data.adopted} adopted · ${data.updated} updated`
-          );
-          if (data.imported || data.adopted || data.updated) {
-            fetchGames(true);
-            fetchAnalytics();
-          }
-        } else if (data.status === "skipped") {
-          if (data.reason && !data.reason.includes("not connected") && !data.reason.includes("already running")) {
-            showToast("Auto-sync skipped", "info");
-          }
-        } else if (data.status === "failed") {
-          showToast("Auto-sync failed", "error");
-        }
-      } catch {
-        /* ignore malformed frames */
-      }
-    });
-    return () => es.close();
-  }, [showToast, fetchGames, fetchAnalytics]);
 
   // Preload everything once at boot — games, Steam identity, analytics,
   // wishlist and custom platforms — so every tab is instant afterwards.
@@ -98,25 +54,6 @@ export default function App() {
     if (!s.discoverLists || Date.now() - s.lastListsFetch > 300_000) fetchDiscoverLists();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const handleEnter = () => {
-    try {
-      localStorage.setItem(ENTERED_KEY, "1");
-    } catch {
-      /* ignore */
-    }
-    setEntered(true);
-    setActiveTab("dashboard");
-  };
-
-  const handleReturnToLanding = () => {
-    try {
-      localStorage.removeItem(ENTERED_KEY);
-    } catch {
-      /* ignore */
-    }
-    setEntered(false);
-  };
 
 const tabs = [
     { id: "dashboard", num: "00", label: "CENTRAL" },
@@ -153,21 +90,6 @@ const tabs = [
     );
   }
 
-  // Landing gate — shown full-screen until the user enters
-  if (!entered) {
-    return (
-      <div className="h-screen overflow-y-auto bg-brand-bg text-zinc-300 font-sans selection:bg-brand-accent/30 selection:text-brand-accent">
-        <LandingView onEnter={handleEnter} />
-        <SettingsModal />
-        <AuthModal />
-        <Toast />
-        {!booted && (
-          <PageLoader checks={[!loadingGames]} onComplete={() => setBooted(true)} />
-        )}
-      </div>
-    );
-  }
-
   return (
     <>
       <div className="flex h-screen w-full bg-brand-bg overflow-hidden text-zinc-300 font-sans selection:bg-brand-accent/30 selection:text-brand-accent relative">
@@ -183,16 +105,12 @@ const tabs = [
         <aside className="hidden md:flex flex-col justify-between px-8 pt-10 pb-4 border-r border-brand-border bg-brand-bg relative z-10">
           <div className="space-y-16">
             {/* Branding Logo */}
-            <button
-              onClick={handleReturnToLanding}
-              className="text-left group cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-4 block w-full bg-transparent border-none p-0"
-              title="Return to Landing Page"
-            >
-              <div className="text-4xl font-black tracking-tighter leading-none text-brand-accent select-none group-hover:text-white transition-colors duration-200">
+            <div className="text-left select-none">
+              <div className="text-4xl font-black tracking-tighter leading-none text-brand-accent">
                 GAME<br />TRACK_
               </div>
-              <p className="text-[11px] font-mono tracking-widest text-brand-muted mt-2 font-bold uppercase group-hover:text-brand-accent transition-colors duration-200">Gaming Registry</p>
-            </button>
+              <p className="text-[11px] font-mono tracking-widest text-brand-muted mt-2 font-bold uppercase">Gaming Registry</p>
+            </div>
 
             {/* Sidebar Navigation */}
             <nav className="space-y-6">
@@ -247,16 +165,9 @@ const tabs = [
 
         {/* Mobile Header (Mobile Only) */}
         <header className="md:hidden flex items-center justify-between px-6 py-4 border-b border-brand-border bg-brand-bg relative z-20">
-          <button
-            onClick={() => {
-              handleReturnToLanding();
-              setMobileMenuOpen(false);
-            }}
-            className="text-2xl font-black tracking-tighter text-brand-accent hover:text-white transition-colors duration-200 cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-4 text-left bg-transparent border-none p-0"
-            title="Return to Landing Page"
-          >
+          <div className="text-2xl font-black tracking-tighter text-brand-accent select-none">
             GAMETRACK
-          </button>
+          </div>
           
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

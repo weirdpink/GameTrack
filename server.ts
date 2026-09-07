@@ -6,7 +6,7 @@ import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import compression from "compression";
-import { apiRouter, runSteamSyncInternal } from "./server/routes";
+import { apiRouter } from "./server/routes";
 import db from "./server/db";
 import { DIST_DIR, POSTERS_DIR, ensureDataDir } from "./server/paths";
 
@@ -52,9 +52,6 @@ function tokenMatches(supplied: string): boolean {
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
-
-// Connected SSE browsers listening for sync notifications.
-const syncClients = new Set<Response>();
 
 /**
  * Build the express app without binding a port — used by the real server
@@ -131,33 +128,6 @@ export async function createApp(production = false) {
   );
 
   app.use(compression());
-
-  // ── Server-Sent Events — live sync notifications for connected browsers ──
-  // Registered before the API auth gate so the browser can subscribe without
-  // a token; it only carries sync status, never sensitive data.
-  app.get("/api/events", (req: Request, res: Response) => {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-    res.write(": connected\n\n");
-    syncClients.add(res);
-    req.on("close", () => syncClients.delete(res));
-  });
-
-  // SSE heartbeat — keeps idle connections alive through proxies so the
-  // EventSource never silently dies between 5-minute sync events.
-  const sseHeartbeat = setInterval(() => {
-    if (syncClients.size === 0) return;
-    for (const res of syncClients) {
-      try {
-        res.write(": ping\n\n");
-      } catch {
-        /* client gone */
-      }
-    }
-  }, 25_000);
-  sseHeartbeat.unref();
 
   // ── Bearer-token auth gate (optional, disabled in local mode) ────
   if (API_TOKEN) {
@@ -335,78 +305,6 @@ export async function createApp(production = false) {
   return app;
 }
 
-// ── Background Steam Sync ──────────────────────────────────────────
-const STEAM_SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-let steamSyncInterval: ReturnType<typeof setInterval> | null = null;
-
-// The in-flight background sync (if any) so shutdown can wait for it instead
-// of closing the DB underneath a live transaction.
-let inFlightSync: Promise<void> | null = null;
-
-function emitSyncEvent(payload: Record<string, unknown>) {
-  const frame = `event: steam-sync\ndata: ${JSON.stringify(payload)}\n\n`;
-  for (const res of syncClients) {
-    try {
-      res.write(frame);
-    } catch {
-      /* client gone */
-    }
-  }
-}
-
-async function runBackgroundSync() {
-  try {
-    emitSyncEvent({ status: "started" });
-    console.log("[Background Sync] Starting Steam sync...");
-    const result = await runSteamSyncInternal();
-    emitSyncEvent({
-      status: "complete",
-      imported: result.imported,
-      updated: result.updated,
-      adopted: result.adopted,
-      total: result.total,
-    });
-    console.log(
-      `[Background Sync] Steam sync complete — imported: ${result.imported}, updated: ${result.updated}, adopted: ${result.adopted}, total: ${result.total}`
-    );
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Not-connected or already-running are expected; don't spam the log.
-    if (msg.includes("not connected") || msg.includes("already running")) {
-      emitSyncEvent({ status: "skipped", reason: msg });
-      console.log(`[Background Sync] Skipped: ${msg}`);
-    } else if (
-      msg.includes("unreachable") ||
-      msg.includes("offline") ||
-      msg.includes("ENOTFOUND") ||
-      msg.includes("fetch failed") ||
-      msg.includes("timed out")
-    ) {
-      emitSyncEvent({ status: "failed", reason: "Steam API unreachable (offline)" });
-      console.log(`[Background Sync] Skipped: Network offline or Steam API unreachable`);
-    } else {
-      emitSyncEvent({ status: "failed", reason: msg || "Unknown error" });
-      console.error(`[Background Sync] Steam sync failed: ${msg}`);
-    }
-  }
-}
-
-function scheduleBackgroundSync() {
-  inFlightSync = runBackgroundSync().finally(() => {
-    inFlightSync = null;
-  });
-}
-
-function startBackgroundSteamSync() {
-  // Trigger initial Steam sync immediately on startup (1s delay to let server initialize)
-  setTimeout(() => {
-    scheduleBackgroundSync();
-  }, 1_000);
-
-  steamSyncInterval = setInterval(scheduleBackgroundSync, STEAM_SYNC_INTERVAL_MS);
-  console.log(`[Background Sync] Scheduled every ${STEAM_SYNC_INTERVAL_MS / 60_000} minutes.`);
-}
-
 async function startServer() {
   const IS_PRODUCTION = process.env.NODE_ENV === "production";
   const app = await createApp(IS_PRODUCTION);
@@ -423,33 +321,9 @@ async function startServer() {
     process.exit(1);
   });
 
-  // Start background Steam sync (runs once on startup, then every 5 min)
-  startBackgroundSteamSync();
-
   // Graceful shutdown: let active requests finish before exiting.
   const shutdown = async (signal: string) => {
     console.log(`\n${signal} received. Shutting down gracefully...`);
-    if (steamSyncInterval) {
-      clearInterval(steamSyncInterval);
-      steamSyncInterval = null;
-      console.log("[Background Sync] Stopped.");
-    }
-    // EventSource connections never close on their own — end them first or
-    // server.close() hangs forever waiting on open sockets.
-    for (const res of syncClients) {
-      try {
-        res.end();
-      } catch { /* already gone */ }
-    }
-    syncClients.clear();
-    if (inFlightSync) {
-      console.log("[Background Sync] Waiting for in-flight sync to finish...");
-      await Promise.race([
-        inFlightSync,
-        new Promise((resolve) => setTimeout(resolve, 10_000)),
-      ]);
-      console.log("[Background Sync] In-flight sync settled.");
-    }
     server.close(() => {
       console.log("Server closed.");
       db.close();
