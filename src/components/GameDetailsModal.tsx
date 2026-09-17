@@ -19,6 +19,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   const availablePlatforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
 
   const [isEditing, setIsEditing] = useState(false);
+  const [editStatus, setEditStatus] = useState<"backlog" | "playing" | "completed" | "endless">("backlog");
   const [title, setTitle] = useState("");
   const [year, setYear] = useState("");
   const [genres, setGenres] = useState("");
@@ -38,12 +39,12 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   const ratingValue = personalRating === "" ? 0 : parseInt(personalRating, 10) || 0;
 
   // True once the user types in the synopsis textarea; while set, background
-  // synopsis refreshes (IGDB auto-sync) must not clobber their in-progress edit.
+  // synopsis refreshes (RAWG auto-sync) must not clobber their in-progress edit.
   const synopsisDirtyRef = useRef(false);
 
   // Only re-initialize the form when the *selected game changes* (new id),
   // not when the same game's data is refreshed in the store (poster upload,
-  // IGDB sync, Steam sync). Otherwise uploading a poster would discard the
+  // RAWG sync, Steam sync). Otherwise uploading a poster would discard the
   // user's in-progress edits and kick them out of edit mode.
   const lastGameIdRef = useRef<number | null>(null);
   useEffect(() => {
@@ -62,6 +63,13 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     setPosterUrl(selectedGame.poster_url);
     setCriticScore(selectedGame.critic_score?.toString() || "");
     setHidePlaytime(selectedGame.hide_playtime === 1);
+    setEditStatus(
+      (["backlog", "playing", "completed", "endless"] as const).includes(
+        selectedGame.status as "backlog" | "playing" | "completed" | "endless"
+      )
+        ? (selectedGame.status as "backlog" | "playing" | "completed" | "endless")
+        : "backlog"
+    );
     setPersonalRating(selectedGame.personal_rating?.toString() || "");
     setRatingHover(null);
     // Stored platform values may be aliases ("ps5", "PlayStation 5"...) —
@@ -82,13 +90,13 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     setHoursPlayed((hoursFloor + Math.floor(minutesRounding / 60)).toString());
     setMinutesPlayed((minutesRounding % 60).toString());
 
-    // Automatically sync from IGDB if description is missing
-    if (selectedGame.igdb_id && (!selectedGame.synopsis || selectedGame.synopsis === "No synopsis available." || selectedGame.synopsis === "No details provided." || selectedGame.synopsis.trim() === "")) {
-      syncGameSynopsis(selectedGame.id, selectedGame.igdb_id);
+    // Automatically sync from RAWG if description is missing
+    if (selectedGame.rawg_id && (!selectedGame.synopsis || selectedGame.synopsis === "No synopsis available." || selectedGame.synopsis === "No details provided." || selectedGame.synopsis.trim() === "")) {
+      syncGameSynopsis(selectedGame.id, selectedGame.rawg_id);
     }
   }, [selectedGame, syncGameSynopsis]);
 
-  // Mirror background synopsis refreshes (auto IGDB sync, poster uploads) into
+  // Mirror background synopsis refreshes (auto RAWG sync, poster uploads) into
   // the local form state so entering edit mode later shows the fresh text —
   // unless the user is mid-edit on the synopsis field.
   useEffect(() => {
@@ -102,33 +110,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         ? prev.filter((id) => id !== platformId)
         : [...prev, platformId]
     );
-  };
-
-  const handleStatusChange = async (targetStatus: "backlog" | "playing" | "completed" | "endless") => {
-    if (!selectedGame || selectedGame.status === targetStatus) return;
-
-    if (targetStatus === "playing") {
-      const currentlyPlaying = games.find((g) => g.status === "playing" && g.id !== selectedGame.id);
-      if (currentlyPlaying) {
-        openPlayingConflict({
-          currentGame: currentlyPlaying,
-          pendingTitle: selectedGame.title,
-          onConfirmSwitch: async (action) => {
-            await updateGame(currentlyPlaying.id, {
-              status: action === "completed" ? "completed" : "backlog",
-              ...(action === "completed" ? { date_completed: Date.now() } : {}),
-            });
-            await updateGame(selectedGame.id, { status: "playing" });
-          },
-        });
-        return;
-      }
-    }
-
-    await updateGame(selectedGame.id, {
-      status: targetStatus,
-      ...(targetStatus === "completed" && !selectedGame.date_completed ? { date_completed: Date.now() } : {}),
-    });
   };
 
   const handleSaveChanges = async () => {
@@ -178,20 +159,47 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       .map((g) => g.trim())
       .filter((g) => g.length > 0);
 
+    const basePayload = {
+      title: title.trim(),
+      year: year ? parseInt(year, 10) : null,
+      genres: genresArray,
+      synopsis: synopsis.trim(),
+      critic_score: criticScore ? parseInt(criticScore, 10) : null,
+      playtime: calculatedPlaytime,
+      personal_rating: personalRating ? parseInt(personalRating, 10) : null,
+      owned_platforms: selectedPlatforms,
+      hide_playtime: hidePlaytime ? 1 : 0,
+      status: editStatus as "backlog" | "playing" | "completed" | "endless",
+      ...(editStatus === "completed" && !selectedGame.date_completed ? { date_completed: Date.now() } : {}),
+    };
+
     setSaving(true);
     try {
-      const success = await updateGame(selectedGame.id, {
-        title: title.trim(),
-        year: year ? parseInt(year, 10) : null,
-        genres: genresArray,
-        synopsis: synopsis.trim(),
-        critic_score: criticScore ? parseInt(criticScore, 10) : null,
-        playtime: calculatedPlaytime,
-        personal_rating: personalRating ? parseInt(personalRating, 10) : null,
-        owned_platforms: selectedPlatforms,
-        hide_playtime: hidePlaytime ? 1 : 0
-      });
+      if (editStatus === "playing" && selectedGame.status !== "playing") {
+        const currentlyPlaying = games.find((g) => g.status === "playing" && g.id !== selectedGame.id);
+        if (currentlyPlaying) {
+          openPlayingConflict({
+            currentGame: currentlyPlaying,
+            pendingTitle: basePayload.title,
+            onConfirmSwitch: async (action) => {
+              await updateGame(currentlyPlaying.id, {
+                status: action === "completed" ? "completed" : "backlog",
+                ...(action === "completed" ? { date_completed: Date.now() } : {}),
+              });
+              const success = await updateGame(selectedGame.id, basePayload);
+              if (success) {
+                setIsEditing(false);
+                synopsisDirtyRef.current = false;
+                showToast("Game updated", "success", "All changes saved");
+              }
+            },
+          });
+          setSaving(false);
+          return;
+        }
+      }
 
+      const success = await updateGame(selectedGame.id, basePayload);
       if (success) {
         setIsEditing(false);
         synopsisDirtyRef.current = false;
@@ -231,8 +239,8 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
   const handleRemovePoster = async () => {
     if (!selectedGame) return;
-    if (selectedGame.igdb_id) {
-      const original = await syncGamePoster(selectedGame.id, selectedGame.igdb_id);
+    if (selectedGame.rawg_id) {
+      const original = await syncGamePoster(selectedGame.id, selectedGame.rawg_id);
       if (original) {
         setPosterUrl(original);
         return;
@@ -642,6 +650,38 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 </div>
               </div>
 
+              {/* Status — edited here, saved via Apply */}
+              <div className="space-y-2">
+                <span id="edit-game-status-label" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Status</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="radiogroup" aria-labelledby="edit-game-status-label">
+                  {STATUSES.map((s) => {
+                    const active = editStatus === s.value;
+                    const activeStyles: Record<string, string> = {
+                      backlog: "bg-zinc-700/30 border-zinc-500 text-zinc-200",
+                      playing: "bg-emerald-500/20 border-emerald-500/50 text-emerald-400",
+                      completed: "bg-brand-accent/20 border-brand-accent/50 text-brand-accent",
+                      endless: "bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-400",
+                    };
+                    return (
+                      <button
+                        key={s.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => setEditStatus(s.value)}
+                        className={`h-9 sm:h-10 px-3 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center ${
+                          active
+                            ? activeStyles[s.value]
+                            : "bg-zinc-900/60 border-brand-border/50 text-brand-muted hover:text-white hover:border-zinc-600"
+                        }`}
+                      >
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
             {/* Owned Platforms checkboxes */}
               <div className="space-y-2">
                 <label className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Platform Tag checklist</label>
@@ -680,7 +720,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   onChange={(e) => { setSynopsis(e.target.value); synopsisDirtyRef.current = true; }}
                   rows={8}
                   className="w-full min-h-[220px] px-4 py-3 bg-zinc-950 border border-brand-border rounded-none text-xs sm:text-[13px] font-normal font-sans text-zinc-200 leading-relaxed focus:outline-none focus:border-brand-accent resize-y"
-                  placeholder="Enter synopsis or sync from IGDB"
+                  placeholder="Enter synopsis or sync from RAWG"
                 />
               </div>
 
@@ -702,36 +742,9 @@ export const GameDetailsModal: React.FC = React.memo(() => {
           )}
           </div>
 
-          {/* Status + Registry Metrics Footer (Permanently at the bottom when not editing) */}
+          {/* Registry Metrics Footer (Permanently at the bottom when not editing) */}
           {!isEditing && (
             <div className="px-6 py-5 md:px-8 md:py-6 border-t border-brand-border/60 shrink-0 bg-zinc-950/85 backdrop-blur-sm space-y-3">
-              {/* Status Selector */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {STATUSES.map((s) => {
-                  const active = selectedGame.status === s.value;
-                  const activeStyles: Record<string, string> = {
-                    backlog: "bg-zinc-700/30 border-zinc-500 text-zinc-200",
-                    playing: "bg-emerald-500/20 border-emerald-500/50 text-emerald-400",
-                    completed: "bg-brand-accent/20 border-brand-accent/50 text-brand-accent",
-                    endless: "bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-400",
-                  };
-                  return (
-                    <button
-                      key={s.value}
-                      type="button"
-                      onClick={() => handleStatusChange(s.value as "backlog" | "playing" | "completed" | "endless")}
-                      className={`h-9 sm:h-10 px-3 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center ${
-                        active
-                          ? activeStyles[s.value]
-                          : "bg-zinc-900/60 border-brand-border/50 text-brand-muted hover:text-white hover:border-zinc-600"
-                      }`}
-                    >
-                      {s.label}
-                    </button>
-                  );
-                })}
-              </div>
-
               {/* Registry Metrics */}
               <div className="grid grid-cols-3 gap-3">
                 <div className={`bg-zinc-900/60 border p-3.5 flex flex-col justify-between h-[76px] ${selectedGame.hide_playtime === 1 ? "border-dashed border-red-500/25" : "border-brand-border/50"}`}>

@@ -1,4 +1,4 @@
-import { fetchFromIgdb, mapIgdbGame } from "./igdb";
+import { fetchFromRawg, mapRawgGame } from "./rawg";
 
 const STEAM_API_BASE = "https://api.steampowered.com";
 const FETCH_TIMEOUT_MS = 15_000;
@@ -35,7 +35,7 @@ async function steamFetch(url: string): Promise<any> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal as any });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`Steam API error (${res.status}): ${text.slice(0, 300)}`);
@@ -214,7 +214,7 @@ export async function fetchSteamAppDetails(appid: number): Promise<SteamAppDetai
   try {
     const res = await fetch(
       `https://store.steampowered.com/api/appdetails?appids=${appid}&cc=us&l=en`,
-      { signal: controller.signal }
+      { signal: controller.signal as any }
     );
     if (!res.ok) {
       throw new Error(`Steam Store API error (${res.status}) for app ${appid}`);
@@ -232,14 +232,6 @@ export async function fetchSteamAppDetails(appid: number): Promise<SteamAppDetai
 export function getSteamPosterImage(appid: number): string {
   return `https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${appid}/library_600x900.jpg`;
 }
-
-interface IgdbExternal {
-  game: number;
-  uid: string;
-}
-
-const IGDB_GAME_FIELDS =
-  "name, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug";
 
 function normalizeName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/gi, "");
@@ -267,71 +259,22 @@ export async function mapWithLimit<T, R>(
 }
 
 /**
- * Match Steam games to IGDB: first via the external_games bridge (by appid),
- * then by name search for anything without a bridge row. Real games exist on
- * IGDB; Steam apps/tools (Wallpaper Engine & co) don't, so an absence here is
- * the signal that an app is NOT a game at all.
+ * Match Steam games to RAWG by searching names directly.
  */
-export async function matchSteamToIgdb(items: { appid: number; name: string }[]): Promise<Map<number, any>> {
+export async function matchSteamToRawg(items: { appid: number; name: string }[]): Promise<Map<number, any>> {
   const matches = new Map<number, any>();
   const uniqueItems = [...new Map(items.map((i) => [i.appid, i])).values()];
 
-  const externalByAppid = new Map<number, number>();
-  const BATCH = 100;
-  for (let i = 0; i < uniqueItems.length; i += BATCH) {
-    const chunk = uniqueItems.slice(i, i + BATCH);
-    const uidList = chunk.map((a) => `"${a.appid}"`).join(", ");
-    // Note: Steam external rows often have a NULL category, so match by uid
-    // alone — Steam appids are globally unique within the uid field.
-    const externalQuery = `fields game, uid; where uid = (${uidList}); limit ${chunk.length + 10};`;
-    // NOTE: IGDB failures propagate (no silent fallback) — callers must not
-    // treat an outage as "this app is not a game" (see /api/sync/steam).
-    const externalRows = await fetchFromIgdb("external_games", externalQuery);
-    for (const row of (Array.isArray(externalRows) ? externalRows : []) as IgdbExternal[]) {
-      if (!row.game || !row.uid) continue;
-      const appid = Number(row.uid);
-      if (Number.isInteger(appid) && !externalByAppid.has(appid)) {
-        externalByAppid.set(appid, row.game);
-      }
-    }
-  }
-
-  const igdbIds = [...new Set(externalByAppid.values())];
-  const igdbByAppid = new Map<number, number>();
-  for (const [appid, igdbId] of externalByAppid) igdbByAppid.set(appid, igdbId);
-
-  for (let i = 0; i < igdbIds.length; i += BATCH) {
-    const chunk = igdbIds.slice(i, i + BATCH);
-    const idList = chunk.join(", ");
-    const query = `fields ${IGDB_GAME_FIELDS}; where id = (${idList}); limit ${chunk.length + 10};`;
-    const rows = await fetchFromIgdb("games", query);
-    const byId = new Map<number, any>();
-    for (const row of Array.isArray(rows) ? rows : []) byId.set(row.id, row);
-    for (const [appid, igdbId] of igdbByAppid) {
-      const igdbGame = byId.get(igdbId);
-      if (!igdbGame) continue;
-      const item = uniqueItems.find((i) => i.appid === appid);
-      const steamNorm = item?.name ? normalizeName(item.name) : "";
-      const igdbNorm = normalizeName(igdbGame?.name || "");
-      // IGDB's external_games bridge is user-curated and occasionally points
-      // at the wrong game (e.g. CS2's uid "730" linked to an unrelated title).
-      // Only trust it when the names plausibly match; otherwise fall through
-      // to the name search, which enforces the same guard.
-      if (!steamNorm || !igdbNorm || steamNorm === igdbNorm || steamNorm.includes(igdbNorm) || igdbNorm.includes(steamNorm)) {
-        matches.set(appid, igdbGame);
-      }
-    }
-  }
-
-  // Name-search fallback for appids without a bridge row — bounded
+  // Search fallback for appids — bounded
   // concurrency so an outage doesn't serialize hundreds of slow calls.
-  const missing = uniqueItems.filter((i) => !matches.has(i.appid) && i.name);
-  await mapWithLimit(missing, 5, async (item) => {
+  await mapWithLimit(uniqueItems, 5, async (item) => {
     const target = normalizeName(item.name);
     if (!target) return;
-    const query = `fields ${IGDB_GAME_FIELDS}; search "${item.name.replace(/[\\"\r\n;]/g, "")}"; limit 5;`;
-    const rows = await fetchFromIgdb("games", query);
-    const list = Array.isArray(rows) ? rows : [];
+    
+    // RAWG has search_precise option which is very helpful for exact matches
+    const data = await fetchFromRawg("games", { search: item.name.replace(/[\\"\r\n;]/g, ""), search_precise: "true", page_size: "5" });
+    const list = Array.isArray(data?.results) ? data.results : [];
+    
     let best: any | undefined;
     for (const row of list) {
       if (normalizeName(row?.name || "") === target) {
@@ -344,20 +287,27 @@ export async function matchSteamToIgdb(items: { appid: number; name: string }[])
       const firstNorm = normalizeName(first?.name || "");
       if (firstNorm && (firstNorm.includes(target) || target.includes(firstNorm))) best = first;
     }
+    
+    // Fallback: If RAWG returned results but none perfectly matched string equality,
+    // we take the first result as Steam games usually map 1-1 with RAWG's top search result.
+    if (!best && list.length > 0) {
+        best = list[0];
+    }
+
     if (best) matches.set(item.appid, best);
   });
 
   return matches;
 }
 
-/** Merge Steam + IGDB data into the app's normalized game shape. */
-export function buildSyncedGame(steamGame: SteamOwnedGame, igdbGame?: any, appDetails?: SteamAppDetails | null) {
-  const mapped = igdbGame ? mapIgdbGame(igdbGame) : null;
+/** Merge Steam + RAWG data into the app's normalized game shape. */
+export function buildSyncedGame(steamGame: SteamOwnedGame, rawgGame?: any, appDetails?: SteamAppDetails | null) {
+  const mapped = rawgGame ? mapRawgGame(rawgGame) : null;
 
   return {
     title: mapped?.title || appDetails?.name || steamGame.name,
     year: mapped?.year ?? null,
-    igdb_id: mapped?.igdb_id ?? null,
+    rawg_id: mapped?.rawg_id ?? null,
     genres: mapped?.genres ?? [],
     synopsis:
       mapped?.synopsis ??
@@ -371,3 +321,4 @@ export function buildSyncedGame(steamGame: SteamOwnedGame, igdbGame?: any, appDe
     playtime: Math.round((steamGame.playtime_forever || 0) / 60),
   };
 }
+

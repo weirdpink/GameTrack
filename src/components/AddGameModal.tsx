@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { uploadPoster } from "../utils/image";
 import { mergeCustomPlatforms } from "../constants";
-import { IGDBGame } from "../types";
+import { RawgGame } from "../types";
 
 export const AddGameModal: React.FC = React.memo(() => {
   const { 
@@ -33,10 +33,10 @@ export const AddGameModal: React.FC = React.memo(() => {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
 
   // Autocomplete states
-  const [suggestions, setSuggestions] = useState<IGDBGame[]>([]);
+  const [suggestions, setSuggestions] = useState<RawgGame[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [igdbId, setIgdbId] = useState<number | null>(null);
+  const [rawgId, setIgdbId] = useState<number | null>(null);
   const [selectedTitle, setSelectedTitle] = useState("");
 
   const suggestionsRef = useRef<HTMLDivElement>(null);
@@ -106,10 +106,10 @@ export const AddGameModal: React.FC = React.memo(() => {
       }
     } else {
       const inLibrary = games.some(
-        (g) => g.title.toLowerCase() === trimmedTitle.toLowerCase() || (igdbId != null && g.igdb_id === igdbId)
+        (g) => g.title.toLowerCase() === trimmedTitle.toLowerCase() || (rawgId != null && g.rawg_id === rawgId)
       );
       const inWishlist = wishlist.some(
-        (w) => w.title.toLowerCase() === trimmedTitle.toLowerCase() || (igdbId != null && w.igdb_id === igdbId)
+        (w) => w.title.toLowerCase() === trimmedTitle.toLowerCase() || (rawgId != null && w.rawg_id === rawgId)
       );
       if (inLibrary || inWishlist) {
         showToast(`"${trimmedTitle}" is already in your library or wishlist`, "error");
@@ -162,7 +162,7 @@ export const AddGameModal: React.FC = React.memo(() => {
       const commonPayload = {
         title: trimmedTitle,
         year: year ? parseInt(year, 10) : null,
-        igdb_id: igdbId,
+        rawg_id: rawgId,
         genres: genresArray,
         synopsis: synopsis.trim(),
         poster_url: posterUrl.trim(),
@@ -386,7 +386,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                       const applySuggestion = () => {
                         setTitle(suggestion.title);
                         setSelectedTitle(suggestion.title);
-                        setIgdbId(suggestion.igdb_id || null);
+                        setIgdbId(suggestion.rawg_id || null);
                         setYear(suggestion.year ? suggestion.year.toString() : "");
                         setGenres(suggestion.genres ? suggestion.genres.join(", ") : "");
                         setSynopsis(suggestion.synopsis || "");
@@ -396,7 +396,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                       };
                       return (
                       <div
-                        key={suggestion.igdb_id ?? suggestion.title}
+                        key={suggestion.rawg_id ?? suggestion.title}
                         onClick={applySuggestion}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {

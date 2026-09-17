@@ -1,8 +1,8 @@
 # 🎮 GAMETRACK_
 
-> **A Personal Gaming Registry & Metric Analyzer.** Catalogue your collection, log playtime with precision, sync from Steam, discover new titles through IGDB, and inspect deep analytics — all rendered in a raw industrial-cyberpunk interface. Local-first, fully offline-capable, zero cloud dependency.
+> **A Personal Gaming Registry & Metric Analyzer.** Catalogue your collection, log playtime with precision, sync from Steam, discover new titles through RAWG, and inspect deep analytics — all rendered in a raw industrial-cyberpunk interface. Local-first, fully offline-capable, zero cloud dependency.
 
-GameTrack is a full-stack, single-user desktop-style web application built for gamers who treat their library like a database. It combines a **local SQLite registry**, **Steam library sync**, **IGDB discovery**, and a **telemetry dashboard** into one cohesive app with a brutalist, terminal-inspired visual identity.
+GameTrack is a full-stack, single-user desktop-style web application built for gamers who treat their library like a database. It combines a **local SQLite registry**, **Steam library sync**, **RAWG discovery**, and a **telemetry dashboard** into one cohesive app with a brutalist, terminal-inspired visual identity.
 
 ---
 
@@ -135,15 +135,15 @@ The heart of the app — a dense, filterable grid of your entire collection:
 
 ### 02 — DISCOVER Engine
 
-IGDB-powered title discovery with the philosophy of "search, preview, import in one click":
+RAWG-powered title discovery with the philosophy of "search, preview, import in one click":
 
-- **Full-text search** against the IGDB database via secure proxy routes (API credentials never touch the browser).
+- **Full-text search** against the RAWG database via secure proxy routes (API credentials never touch the browser).
 - **Genre filtering** alongside the query.
 - **Trending marquee** — an infinite-scroll feed of currently trending global releases.
 - **Curated editorial sections** — horizontal rails of **Recent Top Rated** (best of the last 90 days), **Best of All Time** (highest critical scores), **New Releases**, and **Most Hyped** upcoming titles.
 - **Rich previews** — every result card shows cover art, synopsis, genre tags, year, and critic score.
-- **One-click import** — add any discovered title straight into your library with metadata intact (poster, genres, synopsis, critic score, IGDB ID for later re-syncs).
-- **Duplicate protection** — titles already in the registry are visually flagged and blocked server-side (unique `igdb_id` / `steam_appid` / title constraints).
+- **One-click import** — add any discovered title straight into your library with metadata intact (poster, genres, synopsis, critic score, RAWG ID for later re-syncs).
+- **Duplicate protection** — titles already in the registry are visually flagged and blocked server-side (unique `rawg_id` / `steam_appid` / title constraints).
 - **Keyboard shortcut:** press `CMD+K` (or `CTRL+K`) anywhere to jump straight into Discover search.
 
 ### 03 — ANALYTICS
@@ -185,7 +185,7 @@ Opened from the gear icon (sidebar, dashboard header, or library header):
 | **Database** | SQLite via `better-sqlite3` — synchronous, zero-config, file-based |
 | **Validation** | Zod 4 (request schemas shared between client and server) |
 | **Security** | Helmet (CSP), CORS allow-listing, CSRF origin checks, express-rate-limit, optional bearer-token gate |
-| **Integrations** | IGDB API (discovery), Steam Web API (library sync) |
+| **Integrations** | RAWG API (discovery), Steam Web API (library sync) |
 | **Testing** | Vitest, supertest (API smoke tests), @testing-library/react (render tests) |
 
 ---
@@ -200,7 +200,7 @@ A single `games` table powers everything (plus a `settings` key/value table for 
 | `title` | TEXT | trimmed, 1–300 chars |
 | `status` | TEXT | `backlog` \| `playing` \| `completed` \| `endless` |
 | `year` | INTEGER NULL | release year |
-| `igdb_id` | INTEGER NULL | unique — links to IGDB metadata |
+| `rawg_id` | INTEGER NULL | unique — links to RAWG metadata |
 | `genres` | JSON TEXT | string array, e.g. `["Action","RPG"]` |
 | `synopsis` | TEXT | up to 10,000 chars |
 | `poster_url` | TEXT | http(s) URL or local `/posters/...` path |
@@ -215,7 +215,7 @@ A single `games` table powers everything (plus a `settings` key/value table for 
 | `steam_appid` | INTEGER NULL | unique — used for Steam sync matching |
 | `custom_order` | INTEGER NULL | hand-arranged library position |
 
-**Uniqueness:** `igdb_id`, `steam_appid`, and case-insensitive `title` are all enforced at the database level, so imports can never create duplicates.
+**Uniqueness:** `rawg_id`, `steam_appid`, and case-insensitive `title` are all enforced at the database level, so imports can never create duplicates.
 
 ---
 
@@ -246,8 +246,8 @@ All routes live under `/api` and return JSON. State-changing requests require a 
 | `GET` | `/api/export` | Download full library as JSON backup |
 | `DELETE` | `/api/wipe` | Destroy the entire registry |
 | `POST` | `/api/upload-poster` | Upload cover art (magic-byte validated) |
-| `GET` | `/api/discover/search` | IGDB search with genre filter |
-| `GET` | `/api/discover/game/:igdbId` | Full metadata for one title |
+| `GET` | `/api/discover/search` | RAWG search with genre filter |
+| `GET` | `/api/discover/game/:rawgId` | Full metadata for one title |
 | `GET` | `/api/discover/trending` | Current trending releases |
 | `GET` | `/api/discover/lists` | Curated rails: recent top rated, best of all time, new releases, most hyped |
 
@@ -260,10 +260,10 @@ Non-API routes serve the built SPA; unknown `/api/*` routes return JSON 404s.
 Copy `.env.example` to `.env` and fill in what you need:
 
 ```env
-# ── Required for IGDB discovery ─────────────────────────────────
-# Get these from the Twitch Developer Portal (IGDB API).
-IGDB_CLIENT_ID=your_twitch_client_id_here
-IGDB_CLIENT_SECRET=your_twitch_client_secret_here
+# ── Required for RAWG discovery ─────────────────────────────────
+# Get these from the RAWG API Docs (rawg.io/apidocs).
+RAWG_API_KEY=your_rawg_api_key_here
+
 
 # ── Steam integration (optional — enables library sync) ─────────
 # STEAM_WEB_API_KEY=your_steam_api_key_here
@@ -280,7 +280,7 @@ IGDB_CLIENT_SECRET=your_twitch_client_secret_here
 # NODE_ENV=development
 ```
 
-> Without IGDB credentials the app still runs — you just won't be able to search Discover or re-sync IGDB metadata. Manual add + Steam sync work independently.
+> Without RAWG credentials the app still runs — you just won't be able to search Discover or re-sync RAWG metadata. Manual add + Steam sync work independently.
 
 ---
 
@@ -357,7 +357,7 @@ gametrack/
 ├── server/
 │   ├── db.ts                 # SQLite connection & schema init
 │   ├── routes.ts             # All API routes, zod schemas, parsing
-│   ├── igdb.ts               # IGDB token + query proxy
+│   ├── rawg.ts               # RAWG API proxy
 │   ├── steam.ts              # Steam Web API client
 │   └── paths.ts              # Data/poster/dist directory resolution
 ├── src/
@@ -390,9 +390,9 @@ gametrack/
 ## 🔒 Security Notes
 
 - **CSRF / origin pinning** — every state-changing request must carry an allowed `Origin`; missing or foreign origins get a clean 403 (also defeats DNS rebinding).
-- **CSP** — production serves a strict Content-Security-Policy: `script-src 'self'` with sha256 hashes allowing the two inline bootstrap scripts (theme pre-paint + boot watchdog), and image hosts allow-listed for IGDB/Steam assets.
+- **CSP** — production serves a strict Content-Security-Policy: `script-src 'self'` with sha256 hashes allowing the two inline bootstrap scripts (theme pre-paint + boot watchdog), and image hosts allow-listed for RAWG/Steam assets.
 - **Rate limiting** — API (200/min), discovery (20/min), uploads (10/min), and Steam sync (2/min).
-- **No secrets to the client** — IGDB client secret stays server-side; the Steam key is stored but never returned by any API.
+- **No secrets to the client** — RAWG API key stays server-side; the Steam key is stored but never returned by any API.
 - **Poster upload validation** — uploaded files are checked against real image magic bytes, so spoofed "image/png" payloads are rejected.
 - **Optional bearer token** — set `API_TOKEN` to require `Authorization: Bearer <token>` on every API call for multi-user/remote setups.
 - **Cache discipline** — all API responses carry `no-store` headers; hashed assets get long immutable caches.

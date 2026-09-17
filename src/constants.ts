@@ -70,7 +70,7 @@ export function libraryGridClass(cols: number): string {
 }
 
 /**
- * Alias map: IGDB platform slugs and store names → canonical app
+ * Alias map: RAWG platform slugs and store names → canonical app
  * platform ids. The app's platform model is store-centric (Steam, GOG, ...),
  * so generic PC-family slugs map to Steam and console families collapse
  * into their brand-level id.

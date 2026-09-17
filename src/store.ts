@@ -2,7 +2,7 @@ import { create } from "zustand";
 import {
   Game, LibrarySummary,
   GenreAnalytics, NextToPlaySuggestion,
-  IGDBGame, SteamSettings, DiscoverLists, CustomizationSettings, WishlistItem, ManualWishlistEntry,
+  RawgGame, SteamSettings, DiscoverLists, CustomizationSettings, WishlistItem, ManualWishlistEntry,
   PlayingConflict
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
@@ -63,9 +63,9 @@ async function getApiError(res: Response, fallback: string): Promise<Error> {
 // request and replay it once the current one settles so refreshes are never lost.
 let analyticsRefetchQueued = false;
 
-async function syncGameField(id: number, igdbId: number, field: "synopsis" | "poster_url", set: (fn: (state: GameTrackState) => Partial<GameTrackState>) => void) {
+async function syncGameField(id: number, rawgId: number, field: "synopsis" | "poster_url", set: (fn: (state: GameTrackState) => Partial<GameTrackState>) => void) {
   try {
-    const res = await fetch(`/api/discover/game/${igdbId}`);
+    const res = await fetch(`/api/discover/game/${rawgId}`);
     if (res.ok) {
       const data = await res.json();
       if (data[field]) {
@@ -115,11 +115,11 @@ interface GameTrackState {
   deleteGames: (ids: number[]) => Promise<boolean>;
   updateCustomOrder: (ids: number[]) => Promise<boolean>;
   clearCustomOrder: () => Promise<boolean>;
-  syncGameSynopsis: (id: number, igdbId: number) => Promise<string | null>;
-  syncGamePoster: (id: number, igdbId: number) => Promise<string | null>;
+  syncGameSynopsis: (id: number, rawgId: number) => Promise<string | null>;
+  syncGamePoster: (id: number, rawgId: number) => Promise<string | null>;
 
-  trendingGames: IGDBGame[];
-  discoverSearchResults: IGDBGame[];
+  trendingGames: RawgGame[];
+  discoverSearchResults: RawgGame[];
   discoverQuery: string;
   loadingDiscover: boolean;
   discoverError: string | null;
@@ -134,13 +134,13 @@ interface GameTrackState {
   fetchTrending: (loadMore?: boolean) => Promise<void>;
   searchDiscover: (query: string, loadMore?: boolean) => Promise<void>;
   fetchDiscoverLists: () => Promise<void>;
-  addGameFromIgdb: (igdbGame: IGDBGame) => Promise<boolean>;
+  addGameFromIgdb: (rawgGame: RawgGame) => Promise<boolean>;
 
   wishlist: WishlistItem[];
   loadingWishlist: boolean;
   lastWishlistFetch: number;
   fetchWishlist: (force?: boolean) => Promise<void>;
-  addToWishlist: (igdbGame: IGDBGame | ManualWishlistEntry) => Promise<boolean>;
+  addToWishlist: (rawgGame: RawgGame | ManualWishlistEntry) => Promise<boolean>;
   removeFromWishlist: (id: number) => Promise<boolean>;
   removeWishlistItems: (ids: number[], silent?: boolean) => Promise<boolean>;
   ownWishlistItem: (id: number) => Promise<boolean>;
@@ -188,7 +188,7 @@ const TAB_KEY = "gametrack_active_tab";
 const VALID_TABS = ["dashboard", "library", "discover", "analytics"] as const;
 
 function getInitialTab(): GameTrackState["activeTab"] {
-  const stored = localStorage.getItem(TAB_KEY);
+  const stored = typeof window !== "undefined" && window.localStorage ? localStorage.getItem(TAB_KEY) : null;
   return (VALID_TABS as readonly string[]).includes(stored || "") ? stored as GameTrackState["activeTab"] : "dashboard";
 }
 
@@ -270,7 +270,7 @@ function loadCachedAnalytics() {
 const cachedAnalytics = loadCachedAnalytics();
 
 // Cache the last Discover payload (trending feed + curated lists) so a reload
-// paints cards instantly instead of waiting on IGDB round-trips. Refreshed on
+// paints cards instantly instead of waiting on RAWG round-trips. Refreshed on
 // every successful fetch.
 const DISCOVER_CACHE_KEY = "gametrack_discover_cache";
 
@@ -288,7 +288,7 @@ function loadCachedDiscover() {
     }
     return parsed as {
       savedAt: number;
-      trendingGames: IGDBGame[];
+      trendingGames: RawgGame[];
       trendingPage: number;
       hasMoreTrending: boolean;
       discoverLists: DiscoverLists | null;
@@ -302,7 +302,7 @@ const cachedDiscover = loadCachedDiscover();
 
 function saveDiscoverCache(snapshot: {
   savedAt: number;
-  trendingGames: IGDBGame[];
+  trendingGames: RawgGame[];
   trendingPage: number;
   hasMoreTrending: boolean;
   discoverLists: DiscoverLists | null;
@@ -318,7 +318,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   activeTab: getInitialTab(),
   setActiveTab: (tab) => {
     if (tab !== "wishlist") {
-      localStorage.setItem(TAB_KEY, tab);
+      if (typeof window !== "undefined" && window.localStorage) localStorage.setItem(TAB_KEY, tab);
     }
     set({ activeTab: tab, selectedGame: null });
   },
@@ -531,10 +531,10 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     }
   },
 
-  syncGameSynopsis: (id, igdbId) => syncGameField(id, igdbId, "synopsis", set),
-  syncGamePoster: (id, igdbId) => syncGameField(id, igdbId, "poster_url", set),
+  syncGameSynopsis: (id, rawgId) => syncGameField(id, rawgId, "synopsis", set),
+  syncGamePoster: (id, rawgId) => syncGameField(id, rawgId, "poster_url", set),
 
-  // ── Discover (IGDB) ───────────────────────────────────────────
+  // ── Discover (RAWG) ───────────────────────────────────────────
   trendingGames: cachedDiscover?.trendingGames ?? [],
   discoverSearchResults: [],
   discoverQuery: "",
@@ -656,17 +656,17 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     }
   },
 
-  addGameFromIgdb: async (igdbGame) => {
+  addGameFromIgdb: async (rawgGame) => {
     try {
-      // Fetch full details from IGDB and merge everything so library entries
+      // Fetch full details from RAWG and merge everything so library entries
       // have the same rich metadata as the library page details modal
-      let merged = igdbGame;
-      if (igdbGame.igdb_id) {
+      let merged = rawgGame;
+      if (rawgGame.rawg_id) {
         try {
-          const detailRes = await fetch(`/api/discover/game/${igdbGame.igdb_id}`);
+          const detailRes = await fetch(`/api/discover/game/${rawgGame.rawg_id}`);
           if (detailRes.ok) {
             const detailData = await detailRes.json();
-            merged = { ...igdbGame, ...detailData };
+            merged = { ...rawgGame, ...detailData };
           }
         } catch (e) {
           console.error("Failed to fetch full game details:", e);
@@ -675,8 +675,8 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
 
       // Check for duplicates
       const existingGame = get().games.find(
-        (g) => g.igdb_id === igdbGame.igdb_id || 
-               (g.title.toLowerCase() === igdbGame.title.toLowerCase() && !g.igdb_id)
+        (g) => g.rawg_id === rawgGame.rawg_id || 
+               (g.title.toLowerCase() === rawgGame.title.toLowerCase() && !g.rawg_id)
       );
       if (existingGame) {
         throw new Error("This game already exists in your library.");
@@ -688,7 +688,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         body: JSON.stringify({
           title: merged.title,
           year: merged.year,
-          igdb_id: merged.igdb_id,
+          rawg_id: merged.rawg_id,
           genres: merged.genres || [],
           synopsis: merged.synopsis || "",
           poster_url: merged.poster_url || "",
@@ -706,7 +706,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       set((state) => ({ games: [data, ...state.games] }));
       // Adding to the library should retire the wishlist entry for the same
       // game, if one exists — keeps the two lists from drifting apart.
-      const wishlistDup = get().wishlist.find((w) => w.igdb_id === igdbGame.igdb_id);
+      const wishlistDup = get().wishlist.find((w) => w.rawg_id === rawgGame.rawg_id);
       if (wishlistDup) {
         await get().removeWishlistItems([wishlistDup.id], true);
       }
@@ -738,21 +738,21 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     }
   },
 
-  addToWishlist: async (igdbGame: IGDBGame | ManualWishlistEntry) => {
+  addToWishlist: async (rawgGame: RawgGame | ManualWishlistEntry) => {
     try {
-      // Merge full IGDB details so entries carry the same rich metadata as
+      // Merge full RAWG details so entries carry the same rich metadata as
       // library rows (poster, synopsis, critic score, platforms). Every
-      // IGDB-sourced payload (search/trending/lists/detail) is already fully
+      // RAWG-sourced payload (search/trending/lists/detail) is already fully
       // normalized, so only enrich when a caller passes a partial object.
-      let merged = igdbGame;
+      let merged = rawgGame;
       const needsEnrichment =
-        igdbGame.igdb_id != null && (!igdbGame.synopsis || !igdbGame.poster_url);
+        rawgGame.rawg_id != null && (!rawgGame.synopsis || !rawgGame.poster_url);
       if (needsEnrichment) {
         try {
-          const detailRes = await fetch(`/api/discover/game/${igdbGame.igdb_id}`);
+          const detailRes = await fetch(`/api/discover/game/${rawgGame.rawg_id}`);
           if (detailRes.ok) {
             const detailData = await detailRes.json();
-            merged = { ...igdbGame, ...detailData };
+            merged = { ...rawgGame, ...detailData };
           }
         } catch (e) {
           console.error("Failed to fetch full game details:", e);
@@ -765,7 +765,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         body: JSON.stringify({
           title: merged.title,
           year: merged.year,
-          igdb_id: merged.igdb_id,
+          rawg_id: merged.rawg_id,
           genres: merged.genres || [],
           synopsis: merged.synopsis || "",
           poster_url: merged.poster_url || "",

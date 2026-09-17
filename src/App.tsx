@@ -177,7 +177,7 @@ const tabs = [
         <div className="fixed bottom-[-200px] right-1/4 w-[600px] h-[500px] bg-brand-accent/[0.02] blur-[150px] rounded-full pointer-events-none z-0" />
 
       {/* Container with Sidebar on Desktop, Stacked on Mobile */}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-[240px_1fr] min-h-0 relative z-10">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-[200px_1fr] min-h-0 relative z-10">
         
         {/* Sidebar Left panel (Desktop Only) */}
         <aside className="hidden md:flex flex-col justify-between px-8 pt-10 pb-4 border-r border-brand-border bg-brand-bg relative z-10">
@@ -209,9 +209,6 @@ const tabs = [
                         : "text-white hover:text-brand-accent"
                     }`}
                   >
-                    <span className="text-xs font-mono font-bold text-brand-muted group-hover:text-brand-accent transition-colors">
-                      {tab.num}
-                    </span>
                     <span className="text-xl font-extrabold tracking-tight">
                       {tab.label}
                     </span>
@@ -235,9 +232,6 @@ const tabs = [
                 <div className="min-w-0">
                   <p className="text-sm font-black tracking-tight text-white truncate">
                     {steamSettings?.steamName || "Operator"}
-                  </p>
-                  <p className="text-[11px] font-mono text-brand-muted mt-0.5 lowercase truncate">
-                    {steamSettings?.steamId || "unlinked"}
                   </p>
                 </div>
               </div>

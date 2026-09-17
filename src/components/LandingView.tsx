@@ -166,13 +166,13 @@ export const LandingView: React.FC<{ onEnter: () => void }> = React.memo(({ onEn
         ? [
             `resolve profile — OK`,
             `fetch owned games — READY`,
-            `match igdb metadata — AUTO`,
+            `match rawg metadata — AUTO`,
             `import to registry — ${steamSettings.lastSync ? "LAST SYNC " + new Date(steamSettings.lastSync).toLocaleDateString() : "PENDING"}`,
           ]
         : [
             "resolve profile — OK",
             "fetch owned games — READY",
-            "match igdb metadata — AUTO",
+            "match rawg metadata — AUTO",
             "import to registry — PENDING",
           ],
     [steamSettings]
@@ -385,7 +385,7 @@ export const LandingView: React.FC<{ onEnter: () => void }> = React.memo(({ onEn
                 {[
                   "One-time setup under Settings // Steam Link",
                   "Auto-import: titles, posters, genres, playtime",
-                  "IGDB metadata enrichment on every match",
+                  "RAWG metadata enrichment on every match",
                   "Re-sync anytime to pull new purchases",
                 ].map((item) => (
                   <div key={item} className="flex items-center gap-3">
@@ -468,7 +468,7 @@ export const LandingView: React.FC<{ onEnter: () => void }> = React.memo(({ onEn
               <div className="space-y-1.5">
                 <h3 className="text-lg font-black tracking-tight text-white uppercase">Discover</h3>
                 <p className="text-sm text-zinc-400 leading-relaxed max-w-[52ch]">
-                  IGDB-powered search across the entire catalog — trending titles, ratings,
+                  RAWG-powered search across the entire catalog — trending titles, ratings,
                   screenshots, genre tags. Find it, add it, done.
                 </p>
               </div>
