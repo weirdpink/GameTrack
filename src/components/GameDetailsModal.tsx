@@ -39,12 +39,12 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   const ratingValue = personalRating === "" ? 0 : parseInt(personalRating, 10) || 0;
 
   // True once the user types in the synopsis textarea; while set, background
-  // synopsis refreshes (RAWG auto-sync) must not clobber their in-progress edit.
+  // synopsis refreshes (IGDB auto-sync) must not clobber their in-progress edit.
   const synopsisDirtyRef = useRef(false);
 
   // Only re-initialize the form when the *selected game changes* (new id),
   // not when the same game's data is refreshed in the store (poster upload,
-  // RAWG sync, Steam sync). Otherwise uploading a poster would discard the
+  // IGDB sync, Steam sync). Otherwise uploading a poster would discard the
   // user's in-progress edits and kick them out of edit mode.
   const lastGameIdRef = useRef<number | null>(null);
   useEffect(() => {
@@ -90,13 +90,13 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     setHoursPlayed((hoursFloor + Math.floor(minutesRounding / 60)).toString());
     setMinutesPlayed((minutesRounding % 60).toString());
 
-    // Automatically sync from RAWG if description is missing
-    if (selectedGame.rawg_id && (!selectedGame.synopsis || selectedGame.synopsis === "No synopsis available." || selectedGame.synopsis === "No details provided." || selectedGame.synopsis.trim() === "")) {
-      syncGameSynopsis(selectedGame.id, selectedGame.rawg_id);
+    // Automatically sync from IGDB if description is missing
+    if (selectedGame.igdb_id && (!selectedGame.synopsis || selectedGame.synopsis === "No synopsis available." || selectedGame.synopsis === "No details provided." || selectedGame.synopsis.trim() === "")) {
+      syncGameSynopsis(selectedGame.id, selectedGame.igdb_id);
     }
   }, [selectedGame, syncGameSynopsis]);
 
-  // Mirror background synopsis refreshes (auto RAWG sync, poster uploads) into
+  // Mirror background synopsis refreshes (auto IGDB sync, poster uploads) into
   // the local form state so entering edit mode later shows the fresh text —
   // unless the user is mid-edit on the synopsis field.
   useEffect(() => {
@@ -110,6 +110,40 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         ? prev.filter((id) => id !== platformId)
         : [...prev, platformId]
     );
+  };
+
+  const handleStatusChange = async (targetStatus: "backlog" | "playing" | "completed" | "endless") => {
+    if (!selectedGame) return;
+    if (isEditing) {
+      // Status is saved via Apply while editing — the footer selector is for
+      // quick changes on the read-only view.
+      setEditStatus(targetStatus);
+      return;
+    }
+    if (selectedGame.status === targetStatus) return;
+
+    if (targetStatus === "playing") {
+      const currentlyPlaying = games.find((g) => g.status === "playing" && g.id !== selectedGame.id);
+      if (currentlyPlaying) {
+        openPlayingConflict({
+          currentGame: currentlyPlaying,
+          pendingTitle: selectedGame.title,
+          onConfirmSwitch: async (action) => {
+            await updateGame(currentlyPlaying.id, {
+              status: action === "completed" ? "completed" : "backlog",
+              ...(action === "completed" ? { date_completed: Date.now() } : {}),
+            });
+            await updateGame(selectedGame.id, { status: "playing" });
+          },
+        });
+        return;
+      }
+    }
+
+    await updateGame(selectedGame.id, {
+      status: targetStatus,
+      ...(targetStatus === "completed" && !selectedGame.date_completed ? { date_completed: Date.now() } : {}),
+    });
   };
 
   const handleSaveChanges = async () => {
@@ -159,23 +193,25 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       .map((g) => g.trim())
       .filter((g) => g.length > 0);
 
-    const basePayload = {
-      title: title.trim(),
-      year: year ? parseInt(year, 10) : null,
-      genres: genresArray,
-      synopsis: synopsis.trim(),
-      critic_score: criticScore ? parseInt(criticScore, 10) : null,
-      playtime: calculatedPlaytime,
-      personal_rating: personalRating ? parseInt(personalRating, 10) : null,
-      owned_platforms: selectedPlatforms,
-      hide_playtime: hidePlaytime ? 1 : 0,
-      status: editStatus as "backlog" | "playing" | "completed" | "endless",
-      ...(editStatus === "completed" && !selectedGame.date_completed ? { date_completed: Date.now() } : {}),
-    };
-
     setSaving(true);
     try {
-      if (editStatus === "playing" && selectedGame.status !== "playing") {
+      const targetStatus = editStatus as "backlog" | "playing" | "completed" | "endless";
+      const basePayload = {
+        title: title.trim(),
+        year: year ? parseInt(year, 10) : null,
+        genres: genresArray,
+        synopsis: synopsis.trim(),
+        critic_score: criticScore ? parseInt(criticScore, 10) : null,
+        playtime: calculatedPlaytime,
+        personal_rating: personalRating ? parseInt(personalRating, 10) : null,
+        owned_platforms: selectedPlatforms,
+        hide_playtime: hidePlaytime ? 1 : 0,
+        status: targetStatus,
+        ...(targetStatus === "completed" && !selectedGame.date_completed ? { date_completed: Date.now() } : {}),
+      };
+
+      // "Playing" is exclusive: if another game is playing, offer to park it.
+      if (targetStatus === "playing" && selectedGame.status !== "playing") {
         const currentlyPlaying = games.find((g) => g.status === "playing" && g.id !== selectedGame.id);
         if (currentlyPlaying) {
           openPlayingConflict({
@@ -200,6 +236,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       }
 
       const success = await updateGame(selectedGame.id, basePayload);
+
       if (success) {
         setIsEditing(false);
         synopsisDirtyRef.current = false;
@@ -239,8 +276,8 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
   const handleRemovePoster = async () => {
     if (!selectedGame) return;
-    if (selectedGame.rawg_id) {
-      const original = await syncGamePoster(selectedGame.id, selectedGame.rawg_id);
+    if (selectedGame.igdb_id) {
+      const original = await syncGamePoster(selectedGame.id, selectedGame.igdb_id);
       if (original) {
         setPosterUrl(original);
         return;
@@ -518,7 +555,8 @@ export const GameDetailsModal: React.FC = React.memo(() => {
           <div className={`flex-1 overflow-y-auto overscroll-contain space-y-6 ${isEditing ? "p-6 md:p-8" : "pt-4 px-6 pb-6 md:px-8 md:pb-8"}`}>
             {isEditing ? (
               <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Editable Title */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label htmlFor="edit-game-title" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Game Title</label>
                   <input
@@ -720,8 +758,40 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   onChange={(e) => { setSynopsis(e.target.value); synopsisDirtyRef.current = true; }}
                   rows={8}
                   className="w-full min-h-[220px] px-4 py-3 bg-zinc-950 border border-brand-border rounded-none text-xs sm:text-[13px] font-normal font-sans text-zinc-200 leading-relaxed focus:outline-none focus:border-brand-accent resize-y"
-                  placeholder="Enter synopsis or sync from RAWG"
+                  placeholder="Enter synopsis or sync from IGDB"
                 />
+              </div>
+
+              {/* Status — kept inside Edit Metadata so status + details save together via Apply */}
+              <div className="space-y-2">
+                <span id="edit-game-status-label" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Status</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="radiogroup" aria-labelledby="edit-game-status-label">
+                  {STATUSES.map((s) => {
+                    const active = editStatus === s.value;
+                    const activeStyles: Record<string, string> = {
+                      backlog: "bg-zinc-700/30 border-zinc-500 text-zinc-200",
+                      playing: "bg-emerald-500/20 border-emerald-500/50 text-emerald-400",
+                      completed: "bg-brand-accent/20 border-brand-accent/50 text-brand-accent",
+                      endless: "bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-400",
+                    };
+                    return (
+                      <button
+                        key={s.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => handleStatusChange(s.value as "backlog" | "playing" | "completed" | "endless")}
+                        className={`h-9 sm:h-10 px-3 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center ${
+                          active
+                            ? activeStyles[s.value]
+                            : "bg-zinc-900/60 border-brand-border/50 text-brand-muted hover:text-white hover:border-zinc-600"
+                        }`}
+                      >
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
             </div>
@@ -742,7 +812,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
           )}
           </div>
 
-          {/* Registry Metrics Footer (Permanently at the bottom when not editing) */}
+          {/* Status + Registry Metrics Footer (Permanently at the bottom when not editing) */}
           {!isEditing && (
             <div className="px-6 py-5 md:px-8 md:py-6 border-t border-brand-border/60 shrink-0 bg-zinc-950/85 backdrop-blur-sm space-y-3">
               {/* Registry Metrics */}

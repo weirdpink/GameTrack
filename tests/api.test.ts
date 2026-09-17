@@ -66,11 +66,11 @@ describe("API smoke tests", () => {
     expect(res.status).toBe(400);
   });
 
-  it("POST /api/games -> 201, then duplicate rawg_id -> 409", async () => {
+  it("POST /api/games -> 201, then duplicate igdb_id -> 409", async () => {
     const first = await request(app)
       .post("/api/games")
       .set(WITH_ORIGIN)
-      .send({ title: "Test Game", status: "backlog", rawg_id: 777001, genres: ["Action"], year: 2020 });
+      .send({ title: "Test Game", status: "backlog", igdb_id: 777001, genres: ["Action"], year: 2020 });
     expect(first.status).toBe(201);
     expect(first.body.id).toBeGreaterThan(0);
     expect(first.body.genres).toEqual(["Action"]);
@@ -78,7 +78,7 @@ describe("API smoke tests", () => {
     const dup = await request(app)
       .post("/api/games")
       .set(WITH_ORIGIN)
-      .send({ title: "Test Game Dupe", status: "backlog", rawg_id: 777001 });
+      .send({ title: "Test Game Dupe", status: "backlog", igdb_id: 777001 });
     expect(dup.status).toBe(409);
 
     const dupSteam = await request(app)
@@ -95,18 +95,18 @@ describe("API smoke tests", () => {
   });
 
   it("PUT /api/games/:id enforces uniqueness (409) and rejects bad ids (400)", async () => {
-    // Game 2 ("Steam Game") trying to claim game 1's rawg_id -> unique violation
+    // Game 2 ("Steam Game") trying to claim game 1's igdb_id -> unique violation
     const res = await request(app)
       .put("/api/games/2")
       .set(WITH_ORIGIN)
-      .send({ rawg_id: 777001 });
+      .send({ igdb_id: 777001 });
     expect(res.status).toBe(409);
 
     // Setting the same value it already owns is a no-op, not a conflict
     const same = await request(app)
       .put("/api/games/1")
       .set(WITH_ORIGIN)
-      .send({ rawg_id: 777001 });
+      .send({ igdb_id: 777001 });
     expect(same.status).toBe(200);
 
     const badId = await request(app).put("/api/games/0").set(WITH_ORIGIN).send({ title: "nope" });
@@ -354,7 +354,7 @@ describe("API smoke tests", () => {
       .set(WITH_ORIGIN)
       .send({
         title: "Wishlist Test Game",
-        rawg_id: 888001,
+        igdb_id: 888001,
         genres: ["RPG"],
         year: 2024,
         synopsis: "A great game",
@@ -365,11 +365,11 @@ describe("API smoke tests", () => {
     const wishlistItemId = addRes.body.id;
     expect(wishlistItemId).toBeGreaterThan(0);
 
-    // 2. Duplicate rawg_id rejected
+    // 2. Duplicate igdb_id rejected
     const dupRes = await request(app)
       .post("/api/wishlist")
       .set(WITH_ORIGIN)
-      .send({ title: "Wishlist Test Game 2", rawg_id: 888001 });
+      .send({ title: "Wishlist Test Game 2", igdb_id: 888001 });
     expect(dupRes.status).toBe(409);
 
     // 3. GET wishlist contains the item

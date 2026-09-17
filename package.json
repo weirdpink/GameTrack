@@ -16,6 +16,8 @@
     "clean": "rm -rf dist dist-server server.js server.cjs",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
+    "reset-metadata": "tsx scripts/reset-metadata.ts",
+    "fetch-igdb-posters": "tsx scripts/fetch-all-igdb-posters.ts",
     "test": "vitest run"
   },
   "dependencies": {

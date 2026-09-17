@@ -7,14 +7,13 @@ import { z } from "zod";
 import { normalizePlatformIds, AVAILABLE_PLATFORMS } from "../src/constants";
 import { POSTERS_DIR } from "./paths";
 
-import { fetchFromRawg, mapRawgGame, fetchCuratedLists, cachedFetchFromRawg } from "./rawg";
-import { fetchIgdbPoster, fetchIgdbPostersBatch } from "./igdb-posters";
+import { fetchFromIgdb, mapIgdbGame, fetchCuratedLists, cachedFetchFromIgdb, IgdbAuthError } from "./igdb";
 import {
   resolveSteamId,
   fetchOwnedGames,
   fetchSteamAppDetails,
   fetchPlayerSummary,
-  matchSteamToRawg,
+  matchSteamToIgdb,
   buildSyncedGame,
   effectiveSteamApiKey,
   SteamUserError,
@@ -43,9 +42,25 @@ function isUniqueConstraintError(err: unknown): boolean {
   return err instanceof Error && err.message.includes("UNIQUE constraint failed");
 }
 
+/** Shown whenever IGDB rejects the stored credentials — tells the operator the fix. */
+const IGDB_SETUP_HINT =
+  "IGDB is not reachable with the configured credentials. Set valid IGDB_CLIENT_ID / IGDB_CLIENT_SECRET (Twitch developer app) in .env and restart the server.";
+
+/**
+ * IGDB credential problems are configuration errors, so surface them as a 503
+ * with the actionable message instead of a blanket 500 that hides the fix.
+ */
+function respondIgdbFailure(error: unknown, res: Response, fallback: string): Response {
+  console.error("IGDB request failed:", error instanceof Error ? error.message : error);
+  if (error instanceof IgdbAuthError) {
+    return res.status(503).json({ error: IGDB_SETUP_HINT });
+  }
+  return res.status(500).json({ error: fallback });
+}
+
 /** Raw row shape from SQLite — JSON columns are still TEXT strings here. */
 interface GameRow {
-  id: number; title: string; year: number | null; rawg_id: number | null;
+  id: number; title: string; year: number | null; igdb_id: number | null;
   genres: string; synopsis: string; poster_url: string; critic_score: number | null;
   owned_platforms: string; status: string; playtime: number; personal_rating: number | null;
   date_added: number; date_completed: number | null; created_at: number; updated_at: number;
@@ -53,7 +68,7 @@ interface GameRow {
 }
 
 interface WishlistRow {
-  id: number; rawg_id: number | null; title: string; year: number | null;
+  id: number; igdb_id: number | null; title: string; year: number | null;
   genres: string; synopsis: string; poster_url: string; critic_score: number | null;
   owned_platforms: string; date_added: number;
 }
@@ -82,7 +97,7 @@ const GameSchema = z.object({
   title: z.string().trim().min(1).max(300),
   status: z.enum(VALID_STATUSES).default("backlog"),
   year: z.number().int().min(1950).max(2100).nullable().optional(),
-  rawg_id: z.number().int().nullable().optional(),
+  igdb_id: z.number().int().nullable().optional(),
   genres: z.array(z.string().max(100)).max(50).optional().default([]),
   synopsis: z.string().max(10_000).optional().default(""),
   poster_url: z.string().max(2000).refine(val => val === "" || val.startsWith("http://") || val.startsWith("https://") || val.startsWith("/"), {
@@ -109,7 +124,7 @@ export type Game = z.infer<typeof GameSchema> & { id: number };
 const WishlistSchema = z.object({
   title: z.string().trim().min(1).max(300),
   year: z.number().int().min(1950).max(2100).nullable().optional(),
-  rawg_id: z.number().int().nullable().optional(),
+  igdb_id: z.number().int().nullable().optional(),
   genres: z.array(z.string().max(100)).max(50).optional().default([]),
   synopsis: z.string().max(10_000).optional().default(""),
   poster_url: z.string().max(2000).refine(val => val === "" || val.startsWith("http://") || val.startsWith("https://") || val.startsWith("/"), {
@@ -133,7 +148,7 @@ const TrendingQuerySchema = z.object({
   limit: z.string().regex(/^\d+$/).default("15")
 });
 const IdParamSchema = z.object({ id: z.coerce.number().int().positive() });
-const RawgIdParamSchema = z.object({ rawgId: z.coerce.number().int().positive() });
+const IgdbIdParamSchema = z.object({ igdbId: z.coerce.number().int().positive() });
 const UploadPosterSchema = z.object({ dataUrl: z.string().startsWith("data:image/") });
 const PlatformSettingsSchema = z.object({
   platforms: z.array(z.object({
@@ -151,17 +166,17 @@ const MAX_IMPORT_ROWS = 2000;
 const stmts = {
   getAllGames: db.prepare("SELECT * FROM games ORDER BY date_added DESC"),
   getGameById: db.prepare("SELECT * FROM games WHERE id = ?"),
-  getGameByRawgId: db.prepare("SELECT id FROM games WHERE rawg_id = ?"),
+  getGameByIgdbId: db.prepare("SELECT id FROM games WHERE igdb_id = ?"),
   insertGame: db.prepare(`
-    INSERT INTO games (title, year, rawg_id, genres, synopsis, poster_url, critic_score,
+    INSERT INTO games (title, year, igdb_id, genres, synopsis, poster_url, critic_score,
       owned_platforms, status, playtime, personal_rating, date_added, date_completed,
       created_at, updated_at, hide_playtime, steam_appid, custom_order)
-    VALUES (@title, @year, @rawg_id, @genres, @synopsis, @poster_url, @critic_score,
+    VALUES (@title, @year, @igdb_id, @genres, @synopsis, @poster_url, @critic_score,
       @owned_platforms, @status, @playtime, @personal_rating, @date_added,
       @date_completed, @created_at, @updated_at, @hide_playtime, @steam_appid, @custom_order)
   `),
   updateGame: db.prepare(`
-    UPDATE games SET title = @title, year = @year, rawg_id = @rawg_id, genres = @genres,
+    UPDATE games SET title = @title, year = @year, igdb_id = @igdb_id, genres = @genres,
       synopsis = @synopsis, poster_url = @poster_url, critic_score = @critic_score,
       owned_platforms = @owned_platforms, status = @status, playtime = @playtime,
       personal_rating = @personal_rating, date_added = @date_added,
@@ -177,10 +192,10 @@ const stmts = {
   deleteAllGames: db.prepare("DELETE FROM games"),
   getAllWishlist: db.prepare("SELECT * FROM wishlist ORDER BY date_added DESC"),
   getWishlistById: db.prepare("SELECT * FROM wishlist WHERE id = ?"),
-  getWishlistByRawgId: db.prepare("SELECT id FROM wishlist WHERE rawg_id = ?"),
+  getWishlistByIgdbId: db.prepare("SELECT id FROM wishlist WHERE igdb_id = ?"),
   insertWishlist: db.prepare(`
-    INSERT INTO wishlist (rawg_id, title, year, genres, synopsis, poster_url, critic_score, owned_platforms, date_added)
-    VALUES (@rawg_id, @title, @year, @genres, @synopsis, @poster_url, @critic_score, @owned_platforms, @date_added)
+    INSERT INTO wishlist (igdb_id, title, year, genres, synopsis, poster_url, critic_score, owned_platforms, date_added)
+    VALUES (@igdb_id, @title, @year, @genres, @synopsis, @poster_url, @critic_score, @owned_platforms, @date_added)
   `),
   deleteWishlistItem: db.prepare("DELETE FROM wishlist WHERE id = ?"),
 };
@@ -237,7 +252,7 @@ apiRouter.post("/games", (req: Request, res: Response) => {
     const result = stmts.insertGame.run({
       title: g.title,
       year: g.year ?? null,
-      rawg_id: g.rawg_id ?? null,
+      igdb_id: g.igdb_id ?? null,
       genres: JSON.stringify(g.genres),
       synopsis: g.synopsis,
       poster_url: g.poster_url,
@@ -342,7 +357,7 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
     stmts.updateGame.run({
       title: g.title ?? existing.title,
       year: g.year !== undefined ? g.year : existing.year,
-      rawg_id: g.rawg_id !== undefined ? g.rawg_id : existing.rawg_id,
+      igdb_id: g.igdb_id !== undefined ? g.igdb_id : existing.igdb_id,
       genres: JSON.stringify(sent("genres") ? g.genres : safeJsonParse(existing.genres, [])),
       synopsis: sent("synopsis") ? g.synopsis : existing.synopsis,
       poster_url: sent("poster_url") ? g.poster_url : existing.poster_url,
@@ -469,20 +484,20 @@ apiRouter.post("/import", (req: Request, res: Response) => {
     let skipped = 0;
     let duplicates = 0;
 
-    // Dedupe against existing rows: by rawg_id, then steam_appid, then title.
-    const existingByRawg = new Map<number, number>();
+    // Dedupe against existing rows: by igdb_id, then steam_appid, then title.
+    const existingByIgdb = new Map<number, number>();
     const existingBySteam = new Map<number, number>();
     const existingByTitle = new Map<string, number>();
-    for (const row of stmts.getAllGames.all() as { id: number; rawg_id: number | null; steam_appid: number | null; title: string }[]) {
-      if (row.rawg_id != null) existingByRawg.set(row.rawg_id, row.id);
+    for (const row of stmts.getAllGames.all() as { id: number; igdb_id: number | null; steam_appid: number | null; title: string }[]) {
+      if (row.igdb_id != null) existingByIgdb.set(row.igdb_id, row.id);
       if (row.steam_appid != null) existingBySteam.set(row.steam_appid, row.id);
       existingByTitle.set(String(row.title || "").toLowerCase(), row.id);
     }
     const seenInBatch = new Set<string>();
 
     const isDuplicate = (data: z.infer<typeof GameSchema>) => {
-      if (data.rawg_id != null) {
-        return existingByRawg.has(data.rawg_id) || seenInBatch.has(`i:${data.rawg_id}`);
+      if (data.igdb_id != null) {
+        return existingByIgdb.has(data.igdb_id) || seenInBatch.has(`i:${data.igdb_id}`);
       }
       if (data.steam_appid != null) {
         return existingBySteam.has(data.steam_appid) || seenInBatch.has(`s:${data.steam_appid}`);
@@ -499,7 +514,7 @@ apiRouter.post("/import", (req: Request, res: Response) => {
         const data = parsed.data;
         if (isDuplicate(data)) { duplicates++; skipped++; continue; }
 
-        if (data.rawg_id != null) seenInBatch.add(`i:${data.rawg_id}`);
+        if (data.igdb_id != null) seenInBatch.add(`i:${data.igdb_id}`);
         if (data.steam_appid != null) seenInBatch.add(`s:${data.steam_appid}`);
         seenInBatch.add(`t:${data.title.toLowerCase()}`);
 
@@ -507,7 +522,7 @@ apiRouter.post("/import", (req: Request, res: Response) => {
         stmts.insertGame.run({
           title: data.title,
           year: data.year ?? null,
-          rawg_id: data.rawg_id ?? null,
+          igdb_id: data.igdb_id ?? null,
           genres: JSON.stringify(data.genres),
           synopsis: data.synopsis,
           poster_url: data.poster_url,
@@ -626,7 +641,7 @@ apiRouter.put("/settings/steam", async (req: Request, res: Response) => {
   } catch (err: unknown) {
     console.error("PUT /api/settings/steam error:", err instanceof Error ? err.message : err);
     // User-facing validation errors are "check your URL" problems; anything
-    // else (timeouts, Steam/RAWG outages) is a server-side failure.
+    // else (timeouts, Steam/IGDB outages) is a server-side failure.
     if (err instanceof SteamUserError) {
       return res.status(400).json({ error: err.message });
     }
@@ -690,7 +705,7 @@ apiRouter.put("/settings/platforms", (req: Request, res: Response) => {
   }
 });
 
-// POST /api/sync/steam — pull owned games, enrich via RAWG, import/update
+// POST /api/sync/steam — pull owned games, enrich via IGDB, import/update
 // A single sync may run at a time; concurrent requests (double-clicks, tabs)
 // get a 409 instead of racing on the same rows.
 let syncInProgress = false;
@@ -731,7 +746,7 @@ export async function runSteamSyncInternal(): Promise<{
       return { ok: true, total: 0, gamesImported: 0, excludedApps: 0, imported: 0, updated: 0, adopted: 0, unmatchedCount: 0, lookupFailures: 0, lastSync: Date.now() };
     }
 
-    const rawgMatches = await matchSteamToRawg(ownedGames.map((g) => ({ appid: g.appid, name: g.name })));
+    const igdbMatches = await matchSteamToIgdb(ownedGames.map((g) => ({ appid: g.appid, name: g.name })));
 
     const excludedAppids = new Set<number>();
     // Upfront check for known software/tools
@@ -743,7 +758,7 @@ export async function runSteamSyncInternal(): Promise<{
 
     const detailsByAppid = new Map<number, any>();
     const detailLookupFailures: { appid: number; name: string }[] = [];
-    const unmatchedForDetails = ownedGames.filter((g) => !rawgMatches.has(g.appid) && !excludedAppids.has(g.appid));
+    const unmatchedForDetails = ownedGames.filter((g) => !igdbMatches.has(g.appid) && !excludedAppids.has(g.appid));
     await mapWithLimit(unmatchedForDetails, 5, async (g) => {
       try {
         const details = await fetchSteamAppDetails(g.appid);
@@ -796,7 +811,7 @@ export async function runSteamSyncInternal(): Promise<{
         stmts.updateGame.run({
           title: preserve ? existing.title : game.title,
           year: preserve ? existing.year : (game.year ?? existing.year),
-          rawg_id: preserve ? existing.rawg_id : (game.rawg_id ?? existing.rawg_id),
+          igdb_id: preserve ? existing.igdb_id : (game.igdb_id ?? existing.igdb_id),
           genres: JSON.stringify(preserve ? safeJsonParse(existing.genres, []) : game.genres),
           synopsis: preserve ? existing.synopsis : game.synopsis,
           poster_url: preserve ? existing.poster_url : game.poster_url,
@@ -829,7 +844,7 @@ export async function runSteamSyncInternal(): Promise<{
       stmts.insertGame.run({
         title: game.title,
         year: game.year ?? null,
-        rawg_id: game.rawg_id ?? null,
+        igdb_id: game.igdb_id ?? null,
         genres: JSON.stringify(game.genres),
         synopsis: game.synopsis,
         poster_url: game.poster_url,
@@ -861,9 +876,9 @@ export async function runSteamSyncInternal(): Promise<{
     const syncedGames = ownedGames
       .filter((g) => !excludedAppids.has(g.appid))
       .map((g) => {
-        const rawg = rawgMatches.get(g.appid);
-        if (!rawg) unmatched.push({ appid: g.appid, name: g.name });
-        return buildSyncedGame(g, rawg, detailsByAppid.get(g.appid));
+        const igdb = igdbMatches.get(g.appid);
+        if (!igdb) unmatched.push({ appid: g.appid, name: g.name });
+        return buildSyncedGame(g, igdb, detailsByAppid.get(g.appid));
       });
 
     syncAll(syncedGames);
@@ -968,27 +983,24 @@ apiRouter.post("/upload-poster", (req: Request, res: Response) => {
   }
 });
 
-// ── RAWG DISCOVER PROXY ───────────────────────────────────────────
+// ── IGDB DISCOVER PROXY ───────────────────────────────────────────
 
-apiRouter.get("/discover/game/:rawgId", async (req: Request, res: Response) => {
+apiRouter.get("/discover/game/:igdbId", async (req: Request, res: Response) => {
   try {
-    const paramParsed = RawgIdParamSchema.safeParse(req.params);
+    const paramParsed = IgdbIdParamSchema.safeParse(req.params);
     if (!paramParsed.success) return res.status(400).json({ error: "Invalid Game ID" });
-    const gId = paramParsed.data.rawgId;
+    const gId = paramParsed.data.igdbId;
 
-    const data = await cachedFetchFromRawg(`games/${gId}`, {}, 60 * 60 * 1000);
+    const query = `fields name, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug; where id = ${gId};`;
+    const data = await cachedFetchFromIgdb("games", query, 60 * 60 * 1000);
 
-    if (!data || !data.id) {
+    if (!Array.isArray(data) || data.length === 0) {
       return res.status(404).json({ error: "Game not found" });
     }
 
-    const mapped = mapRawgGame(data);
-    const igdbPoster = await fetchIgdbPoster(mapped.title);
-    if (igdbPoster) mapped.poster_url = igdbPoster;
-    res.json(mapped);
+    res.json(mapIgdbGame(data[0]));
   } catch (error: unknown) {
-    console.error("RAWG Game Detail fetch error:", error instanceof Error ? error.message : error);
-    res.status(500).json({ error: "Failed to fetch game details from RAWG" });
+    respondIgdbFailure(error, res, "Failed to fetch game details from IGDB");
   }
 });
 
@@ -997,27 +1009,71 @@ apiRouter.get("/discover/search", async (req: Request, res: Response) => {
     const parsed = SearchQuerySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
     const { q, page } = parsed.data;
-    const qStr = q.toString().trim();
+    // Strip characters that break out of the IGDB Apicalypse string literal,
+    // and cap length so a hostile query can't build a megabyte-long request.
+    const qStr = q.toString().trim().replace(/[\\"\r\n;]/g, "").slice(0, 200);
     if (!qStr) return res.json([]);
 
     const pageNum = Math.max(1, parseInt(page.toString()) || 1);
 
-    const data = await fetchFromRawg("games", {
-      search: qStr,
-      page: pageNum.toString(),
-      page_size: "15"
+    // Note: IGDB Apicalypse does NOT support 'where' filters alongside 'search' queries (it returns 0 results).
+    // So we fetch 100 entries and do clean filtering in JS.
+    const query = `search "${qStr}"; fields name, category, parent_game, version_parent, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug; limit 100;`;
+    const data = await fetchFromIgdb("games", query);
+
+    const EXCLUDE_KEYWORDS = [
+      "skin", "batsuit", "costume", "season pass", "pack", "add-on", "addon",
+      "bonus", "theme", "avatar", "pre-order", "preorder", "suit", "car", "vehicle",
+      "collector", "steelbook", "limited edition", "serious edition"
+    ];
+
+    const filteredData = Array.isArray(data) ? data.filter((item: any) => {
+      const nameLower = (item.name || "").toLowerCase();
+
+      // 1. Exclude if title explicitly matches microtransaction skin/costume/item pack keywords
+      if (EXCLUDE_KEYWORDS.some(kw => nameLower.includes(kw))) {
+        return false;
+      }
+
+      // 2. Exclude non-game categories (DLC=1, Mod=5, Pack=13, Update=14) unless title explicitly says Director's Cut / GOTY / etc.
+      if (item.category !== undefined && item.category !== null) {
+        const allowedCategories = [0, 2, 3, 4, 8, 9, 10, 11];
+        if (!allowedCategories.includes(item.category)) {
+          const isMajorEdition = ["director", "goty", "game of the year"].some(kw => nameLower.includes(kw));
+          if (!isMajorEdition) return false;
+        }
+      }
+
+      return true;
+    }) : [];
+
+    // 3. Sort results by IGDB-style title relevance ranking (base game first)
+    const searchLower = qStr.toLowerCase().trim();
+    filteredData.sort((a: any, b: any) => {
+      const aName = (a.name || "").toLowerCase();
+      const bName = (b.name || "").toLowerCase();
+
+      // Exact title match gets top priority
+      if (aName === searchLower && bName !== searchLower) return -1;
+      if (bName === searchLower && aName !== searchLower) return 1;
+
+      // Base games (without version_parent) get priority over edition variants
+      if (!a.version_parent && b.version_parent) return -1;
+      if (!b.version_parent && a.version_parent) return 1;
+
+      // Title starting with exact search string gets next priority
+      if (aName.startsWith(searchLower) && !bName.startsWith(searchLower)) return -1;
+      if (bName.startsWith(searchLower) && !aName.startsWith(searchLower)) return 1;
+
+      return 0; // Preserve IGDB search relevance rank for remaining items
     });
 
-    const results = Array.isArray(data?.results) ? data.results : [];
-    const mapped = results.map(mapRawgGame);
-    const posterMap = await fetchIgdbPostersBatch(mapped.map((g: any) => g.title));
-    mapped.forEach((g: any) => {
-      if (posterMap[g.title]) g.poster_url = posterMap[g.title];
-    });
-    res.json(mapped);
+    const startIndex = (pageNum - 1) * 15;
+    const pagedResults = filteredData.slice(startIndex, startIndex + 15);
+    const results = pagedResults.map(mapIgdbGame);
+    res.json(results);
   } catch (error: unknown) {
-    console.error("RAWG Search error:", error instanceof Error ? error.message : error);
-    res.status(500).json({ error: "Failed to search RAWG" });
+    respondIgdbFailure(error, res, "Failed to search IGDB");
   }
 });
 
@@ -1028,54 +1084,24 @@ apiRouter.get("/discover/trending", async (req: Request, res: Response) => {
     const { page, limit } = parsed.data;
     const pageNum = Math.max(1, parseInt(page.toString()) || 1);
     const pageSize = Math.min(30, Math.max(1, parseInt(limit.toString()) || 15));
+    const offset = (pageNum - 1) * pageSize;
 
-    const now = new Date();
-    const todayStr = now.toISOString().split("T")[0];
-    const d30 = new Date();
-    d30.setDate(d30.getDate() - 30);
-    const last30DaysStr = d30.toISOString().split("T")[0];
+    const query = `fields name, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug; where total_rating_count > 50; sort total_rating_count desc; limit ${pageSize}; offset ${offset};`;
+    const data = await cachedFetchFromIgdb("games", query);
 
-    const data = await cachedFetchFromRawg("games", {
-      dates: `${last30DaysStr},${todayStr}`,
-      ordering: "-rating",
-      page: pageNum.toString(),
-      page_size: pageSize.toString()
-    });
-
-    const results = Array.isArray(data?.results) ? data.results : [];
-    const mapped = results.map(mapRawgGame);
-    const posterMap = await fetchIgdbPostersBatch(mapped.map((g: any) => g.title));
-    mapped.forEach((g: any) => {
-      if (posterMap[g.title]) g.poster_url = posterMap[g.title];
-    });
-    res.json(mapped);
+    const results = Array.isArray(data) ? data.map(mapIgdbGame) : [];
+    res.json(results);
   } catch (error: unknown) {
-    console.error("RAWG Trending error:", error instanceof Error ? error.message : error);
-    res.status(500).json({ error: "Failed to fetch trending games from RAWG" });
+    respondIgdbFailure(error, res, "Failed to fetch trending games from IGDB");
   }
 });
 
 apiRouter.get("/discover/lists", async (_req: Request, res: Response) => {
   try {
     const lists = await fetchCuratedLists();
-    const allTitles = [
-      ...lists.topThisMonth.map((g: any) => g.title),
-      ...lists.bestAllTime.map((g: any) => g.title),
-      ...lists.newReleases.map((g: any) => g.title),
-      ...lists.mostHyped.map((g: any) => g.title)
-    ];
-    const posterMap = await fetchIgdbPostersBatch(allTitles);
-    const applyPosters = (list: any[]) => list.forEach((g: any) => {
-      if (posterMap[g.title]) g.poster_url = posterMap[g.title];
-    });
-    applyPosters(lists.topThisMonth);
-    applyPosters(lists.bestAllTime);
-    applyPosters(lists.newReleases);
-    applyPosters(lists.mostHyped);
     res.json(lists);
   } catch (error: unknown) {
-    console.error("RAWG Lists error:", error instanceof Error ? error.message : error);
-    res.status(500).json({ error: "Failed to fetch curated lists from RAWG" });
+    respondIgdbFailure(error, res, "Failed to fetch curated lists from IGDB");
   }
 });
 
@@ -1092,8 +1118,8 @@ apiRouter.get("/wishlist", (_req: Request, res: Response) => {
   }
 });
 
-// POST /api/wishlist — add a game (usually a RAWG search hit) to the wishlist.
-// Rejects duplicates by RAWG id and anything already sitting in the library.
+// POST /api/wishlist — add a game (usually an IGDB search hit) to the wishlist.
+// Rejects duplicates by IGDB id and anything already sitting in the library.
 apiRouter.post("/wishlist", (req: Request, res: Response) => {
   try {
     const parsed = WishlistSchema.safeParse(req.body);
@@ -1102,17 +1128,17 @@ apiRouter.post("/wishlist", (req: Request, res: Response) => {
     }
     const w = parsed.data;
 
-    if (w.rawg_id != null) {
-      if (stmts.getGameByRawgId.get(w.rawg_id)) {
+    if (w.igdb_id != null) {
+      if (stmts.getGameByIgdbId.get(w.igdb_id)) {
         return res.status(409).json({ error: "This game already exists in your library." });
       }
-      if (stmts.getWishlistByRawgId.get(w.rawg_id)) {
+      if (stmts.getWishlistByIgdbId.get(w.igdb_id)) {
         return res.status(409).json({ error: "This game is already on your wishlist." });
       }
     }
 
     const info = stmts.insertWishlist.run({
-      rawg_id: w.rawg_id ?? null,
+      igdb_id: w.igdb_id ?? null,
       title: w.title,
       year: w.year ?? null,
       genres: JSON.stringify(w.genres),
@@ -1181,7 +1207,7 @@ apiRouter.post("/wishlist/:id/own", (req: Request, res: Response) => {
     const item = parseWishlistItem(stmts.getWishlistById.get(itemId));
     if (!item) return res.status(404).json({ error: "Wishlist item not found" });
 
-    if (item.rawg_id != null && stmts.getGameByRawgId.get(item.rawg_id)) {
+    if (item.igdb_id != null && stmts.getGameByIgdbId.get(item.igdb_id)) {
       return res.status(409).json({ error: "This game already exists in your library." });
     }
 
@@ -1190,7 +1216,7 @@ apiRouter.post("/wishlist/:id/own", (req: Request, res: Response) => {
       const info = stmts.insertGame.run({
         title: item.title,
         year: item.year,
-        rawg_id: item.rawg_id,
+        igdb_id: item.igdb_id,
         genres: JSON.stringify(item.genres || []),
         synopsis: item.synopsis || "",
         poster_url: item.poster_url || "",

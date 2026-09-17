@@ -3,7 +3,7 @@ import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import { Search, Compass, Plus, CheckCircle2, Loader2, ChevronDown, ChevronLeft, ChevronRight, X, RefreshCw, Trash2, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { RawgGame, Game } from "../types";
+import { IGDBGame, Game } from "../types";
 import { PosterImage } from "./PosterImage";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { libraryGridClass } from "../constants";
@@ -36,12 +36,12 @@ export const DiscoverView: React.FC = () => {
   const [selectedGenre, setSelectedGenre] = useState("");
 
   const isWishlisted = useCallback(
-    (rawgId: number | null | undefined) => Boolean(rawgId && wishlist.some((w) => w.rawg_id === rawgId)),
+    (igdbId: number | null | undefined) => Boolean(igdbId && wishlist.some((w) => w.igdb_id === igdbId)),
     [wishlist]
   );
 
-  const handleToggleWishlist = useCallback(async (game: RawgGame) => {
-    const existing = game.rawg_id ? wishlist.find((w) => w.rawg_id === game.rawg_id) : null;
+  const handleToggleWishlist = useCallback(async (game: IGDBGame) => {
+    const existing = game.igdb_id ? wishlist.find((w) => w.igdb_id === game.igdb_id) : null;
     if (existing) {
       await removeFromWishlist(existing.id);
     } else {
@@ -49,8 +49,8 @@ export const DiscoverView: React.FC = () => {
     }
   }, [wishlist, addToWishlist, removeFromWishlist]);
 
-  const [infoModalGame, setInfoModalGame] = useState<RawgGame | null>(null);
-  const [infoModalDetails, setInfoModalDetails] = useState<RawgGame | null>(null);
+  const [infoModalGame, setInfoModalGame] = useState<IGDBGame | null>(null);
+  const [infoModalDetails, setInfoModalDetails] = useState<IGDBGame | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   const modalRef = useModalA11y(Boolean(infoModalGame));
@@ -148,16 +148,16 @@ export const DiscoverView: React.FC = () => {
     searchDiscover(query);
   };
 
-  const handleOpenInfoModal = useCallback(async (game: RawgGame) => {
+  const handleOpenInfoModal = useCallback(async (game: IGDBGame) => {
     setInfoModalGame(game);
     setInfoModalDetails(null);
     setLoadingDetails(true);
     // Guard against a slow earlier response overwriting a newer modal
     const requestedIdRef = infoModalRequestIdRef;
-    const requestedId = game.rawg_id;
+    const requestedId = game.igdb_id;
     requestedIdRef.current = requestedId;
     try {
-      const res = await fetch(`/api/discover/game/${game.rawg_id}`);
+      const res = await fetch(`/api/discover/game/${game.igdb_id}`);
       const data = res.ok ? await res.json() : game;
       if (requestedIdRef.current !== requestedId) return; // superseded
       setInfoModalDetails(data);
@@ -169,7 +169,7 @@ export const DiscoverView: React.FC = () => {
     }
   }, []);
 
-  const handleCardClick = useCallback((game: RawgGame) => {
+  const handleCardClick = useCallback((game: IGDBGame) => {
     handleOpenInfoModal(game);
   }, [handleOpenInfoModal]);
 
@@ -177,21 +177,21 @@ export const DiscoverView: React.FC = () => {
   const libraryGamesMap = React.useMemo(() => {
     const map = new Map<number, Game>();
     games.forEach((g) => {
-      if (g.rawg_id) {
-        map.set(g.rawg_id, g);
+      if (g.igdb_id) {
+        map.set(g.igdb_id, g);
       }
     });
     return map;
   }, [games]);
 
   // Determine if a discovered game is already in personal library
-  const getLibraryGame = useCallback((rawgId: number | null) => {
-    if (!rawgId) return null;
-    return libraryGamesMap.get(rawgId) || null;
+  const getLibraryGame = useCallback((igdbId: number | null) => {
+    if (!igdbId) return null;
+    return libraryGamesMap.get(igdbId) || null;
   }, [libraryGamesMap]);
 
-  const handleAddGame = useCallback(async (game: RawgGame) => {
-    if (getLibraryGame(game.rawg_id)) return;
+  const handleAddGame = useCallback(async (game: IGDBGame) => {
+    if (getLibraryGame(game.igdb_id)) return;
     await addGameFromIgdb(game);
   }, [getLibraryGame, addGameFromIgdb]);
 
@@ -201,7 +201,7 @@ export const DiscoverView: React.FC = () => {
 
   const filteredGamesToDisplay = React.useMemo(() => {
     if (!selectedGenre) return gamesToDisplay;
-    // RAWG names some genres differently than our labels ("Role-playing (RPG)").
+    // IGDB names some genres differently than our labels ("Role-playing (RPG)").
     const aliases = [selectedGenre, ...(GENRE_ALIASES[selectedGenre] || [])];
     return gamesToDisplay.filter(game =>
       game.genres && game.genres.some((g: string) => aliases.some(a => g.toLowerCase() === a.toLowerCase()))
@@ -219,7 +219,7 @@ export const DiscoverView: React.FC = () => {
             DISCOVER<br />TITLES
           </h1>
           <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
-            Search the RAWG database to find and add new games.
+            Search the IGDB database to find and add new games.
           </p>
         </div>
       </div>
@@ -227,7 +227,7 @@ export const DiscoverView: React.FC = () => {
       {/* Discovery Search Bar */}
       <form onSubmit={handleSearchSubmit} className="flex flex-col md:flex-row gap-3 mb-6">
         <div className="relative flex-1">
-          <label htmlFor="discover-search" className="sr-only">Search RAWG Database</label>
+          <label htmlFor="discover-search" className="sr-only">Search IGDB Database</label>
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-brand-muted" />
           <input
             id="discover-search"
@@ -292,7 +292,7 @@ export const DiscoverView: React.FC = () => {
           </div>
         </div>
       </form>
-      {/* Curated Sections — editorial lists from RAWG, above the infinite feed */}
+      {/* Curated Sections — editorial lists from IGDB, above the infinite feed */}
       {!query.trim() && (
         <div className="space-y-14">
           <TabbedCuratedSection
@@ -360,13 +360,13 @@ export const DiscoverView: React.FC = () => {
 
           <div className={`grid ${libraryGridClass(customizations.discoverColumns)} gap-4`}>
             {filteredGamesToDisplay.map((game) => {
-              const libGame = getLibraryGame(game.rawg_id);
+              const libGame = getLibraryGame(game.igdb_id);
               return (
                 <DiscoverGameCard
-                  key={game.rawg_id || game.title}
+                  key={game.igdb_id || game.title}
                   game={game}
                   libGame={libGame}
-                  wishlisted={isWishlisted(game.rawg_id)}
+                  wishlisted={isWishlisted(game.igdb_id)}
                   onClick={handleCardClick}
                   onAddGame={handleAddGame}
                   onAddWishlist={handleToggleWishlist}
@@ -460,7 +460,7 @@ export const DiscoverView: React.FC = () => {
 
               <div className="pt-6 border-t border-brand-border mt-6">
                 {(() => {
-                  const libGame = getLibraryGame(infoModalGame.rawg_id);
+                  const libGame = getLibraryGame(infoModalGame.igdb_id);
                   if (libGame) {
                     return (
                       <button
@@ -491,16 +491,16 @@ export const DiscoverView: React.FC = () => {
                         onClick={() => {
                           handleToggleWishlist(infoModalDetails ?? infoModalGame);
                         }}
-                        title={isWishlisted(infoModalGame.rawg_id) ? "Remove from wishlist" : "Add to wishlist"}
-                        aria-label={isWishlisted(infoModalGame.rawg_id) ? "Remove from wishlist" : "Add to wishlist"}
-                        aria-pressed={isWishlisted(infoModalGame.rawg_id)}
+                        title={isWishlisted(infoModalGame.igdb_id) ? "Remove from wishlist" : "Add to wishlist"}
+                        aria-label={isWishlisted(infoModalGame.igdb_id) ? "Remove from wishlist" : "Add to wishlist"}
+                        aria-pressed={isWishlisted(infoModalGame.igdb_id)}
                         className={`shrink-0 flex items-center justify-center gap-1.5 px-3 py-3 border rounded-none text-[11px] font-black uppercase tracking-widest transition-colors cursor-pointer ${
-                          isWishlisted(infoModalGame.rawg_id)
+                          isWishlisted(infoModalGame.igdb_id)
                             ? "bg-brand-accent/10 border-brand-accent/35 text-brand-accent hover:bg-brand-accent/20"
                             : "bg-zinc-900 hover:bg-zinc-800 border-brand-border text-brand-muted hover:text-brand-accent"
                         }`}
                       >
-                        {isWishlisted(infoModalGame.rawg_id) ? (
+                        {isWishlisted(infoModalGame.igdb_id) ? (
                           <Heart className="w-4 h-4 fill-brand-accent stroke-brand-accent" />
                         ) : (
                           <Heart className="w-4 h-4" />
@@ -558,12 +558,12 @@ export const DiscoverView: React.FC = () => {
 };
 
 interface DiscoverGameCardProps {
-  game: RawgGame;
+  game: IGDBGame;
   libGame: Game | null;
   wishlisted: boolean;
-  onClick: (game: RawgGame) => void;
-  onAddGame: (game: RawgGame) => void;
-  onAddWishlist: (game: RawgGame) => void;
+  onClick: (game: IGDBGame) => void;
+  onAddGame: (game: IGDBGame) => void;
+  onAddWishlist: (game: IGDBGame) => void;
 }
 
 const DiscoverGameCard = React.memo<DiscoverGameCardProps>(({ 
@@ -649,15 +649,15 @@ DiscoverGameCard.displayName = "DiscoverGameCard";
 
 interface TabbedCuratedSectionProps {
   loading: boolean;
-  onCardClick: (game: RawgGame) => void;
-  onAddGame: (game: RawgGame) => void;
-  onAddWishlist: (game: RawgGame) => void;
-  isWishlisted: (rawgId: number | null | undefined) => boolean;
-  getLibraryGame: (rawgId: number | null) => Game | null;
-  topThisMonth: RawgGame[] | undefined;
-  bestAllTime: RawgGame[] | undefined;
-  newReleases: RawgGame[] | undefined;
-  mostHyped: RawgGame[] | undefined;
+  onCardClick: (game: IGDBGame) => void;
+  onAddGame: (game: IGDBGame) => void;
+  onAddWishlist: (game: IGDBGame) => void;
+  isWishlisted: (igdbId: number | null | undefined) => boolean;
+  getLibraryGame: (igdbId: number | null) => Game | null;
+  topThisMonth: IGDBGame[] | undefined;
+  bestAllTime: IGDBGame[] | undefined;
+  newReleases: IGDBGame[] | undefined;
+  mostHyped: IGDBGame[] | undefined;
 }
 
 type CuratedTabId = "recent" | "alltime" | "new" | "hyped";
@@ -669,7 +669,7 @@ const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
   const [activeTab, setActiveTab] = useState<CuratedTabId>("recent");
   const trackRef = useRef<HTMLDivElement | null>(null);
 
-  const tabs: { id: CuratedTabId; label: string; desc: string; games: RawgGame[] | undefined }[] = [
+  const tabs: { id: CuratedTabId; label: string; desc: string; games: IGDBGame[] | undefined }[] = [
     { id: "recent", label: "Recent Top Rated", desc: "The best releases of the last 90 days", games: topThisMonth },
     { id: "alltime", label: "Best of All Time", desc: "The highest critical scores on record", games: bestAllTime },
     { id: "new", label: "New Releases", desc: "The freshest drops in the catalog", games: newReleases },
@@ -751,10 +751,10 @@ const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
         >
           {active.games.map((game) => (
             <CuratedGameCard
-              key={game.rawg_id}
+              key={game.igdb_id}
               game={game}
-              inLibrary={Boolean(getLibraryGame(game.rawg_id))}
-              wishlisted={isWishlisted(game.rawg_id)}
+              inLibrary={Boolean(getLibraryGame(game.igdb_id))}
+              wishlisted={isWishlisted(game.igdb_id)}
               onClick={onCardClick}
               onAddGame={onAddGame}
               onAddWishlist={onAddWishlist}
@@ -767,12 +767,12 @@ const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
 };
 
 const CuratedGameCard = React.memo<{
-  game: RawgGame;
+  game: IGDBGame;
   inLibrary: boolean;
   wishlisted: boolean;
-  onClick: (game: RawgGame) => void;
-  onAddGame: (game: RawgGame) => void;
-  onAddWishlist: (game: RawgGame) => void;
+  onClick: (game: IGDBGame) => void;
+  onAddGame: (game: IGDBGame) => void;
+  onAddWishlist: (game: IGDBGame) => void;
 }>(({ game, inLibrary, wishlisted, onClick, onAddGame, onAddWishlist }) => {
   const handleClick = () => onClick(game);
   return (

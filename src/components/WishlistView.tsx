@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import { Search, Plus, X, Heart, Loader2, CheckCircle2, ArrowLeft, Compass, CheckSquare, Check, Trash2 } from "lucide-react";
-import { RawgGame, WishlistItem } from "../types";
+import { IGDBGame, WishlistItem } from "../types";
 import { PosterImage } from "./PosterImage";
 import { libraryGridClass } from "../constants";
 
@@ -27,7 +27,7 @@ export const WishlistView: React.FC = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<RawgGame[]>([]);
+  const [results, setResults] = useState<IGDBGame[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -87,16 +87,16 @@ export const WishlistView: React.FC = () => {
     };
   }, [query]);
 
-  const inWishlist = (rawgId: number | null | undefined) =>
-    Boolean(rawgId && wishlist.some((w) => w.rawg_id === rawgId));
+  const inWishlist = (igdbId: number | null | undefined) =>
+    Boolean(igdbId && wishlist.some((w) => w.igdb_id === igdbId));
 
-  const inLibrary = (rawgId: number | null | undefined) =>
-    Boolean(rawgId && games.some((g) => g.rawg_id === rawgId));
+  const inLibrary = (igdbId: number | null | undefined) =>
+    Boolean(igdbId && games.some((g) => g.igdb_id === igdbId));
 
-  const handleAdd = async (game: RawgGame) => {
+  const handleAdd = async (game: IGDBGame) => {
     const ok = await addToWishlist(game);
     if (ok) {
-      setResults((prev) => prev.filter((r) => r.rawg_id !== game.rawg_id));
+      setResults((prev) => prev.filter((r) => r.igdb_id !== game.igdb_id));
     }
   };
 
@@ -182,7 +182,7 @@ export const WishlistView: React.FC = () => {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search RAWG for games you want..."
+            placeholder="Search IGDB for games you want..."
             className="w-full pl-11 pr-10 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors h-[38px]"
           />
           {query && (
@@ -247,10 +247,10 @@ export const WishlistView: React.FC = () => {
             <div className={`grid ${libraryGridClass(customizations.libraryColumns)} gap-4`}>
               {results.map((game) => (
                 <WishlistSearchCard
-                  key={game.rawg_id}
+                  key={game.igdb_id}
                   game={game}
-                  alreadyWishlisted={inWishlist(game.rawg_id)}
-                  alreadyInLibrary={inLibrary(game.rawg_id)}
+                  alreadyWishlisted={inWishlist(game.igdb_id)}
+                  alreadyInLibrary={inLibrary(game.igdb_id)}
                   onAdd={handleAdd}
                 />
               ))}
@@ -335,14 +335,14 @@ export const WishlistView: React.FC = () => {
             <Heart className="w-12 h-12 text-brand-muted mb-4" />
             <h4 className="text-white font-black text-lg uppercase tracking-wider">Empty Wishlist</h4>
             <p className="text-brand-muted text-sm mt-1 max-w-sm">
-              Your wishlist is empty. Search RAWG above, or wishlist games straight from the Discover feed — every card has a Wish button.
+              Your wishlist is empty. Search IGDB above, or wishlist games straight from the Discover feed — every card has a Wish button.
             </p>
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => searchInputRef.current?.focus()}
                 className="bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink px-6 py-2.5 text-xs font-black uppercase tracking-wider transition-all rounded-none cursor-pointer"
               >
-                Search RAWG
+                Search IGDB
               </button>
               <button
                 onClick={() => setActiveTab("discover")}
@@ -359,7 +359,7 @@ export const WishlistView: React.FC = () => {
               <WishlistItemCard
                 key={item.id}
                 item={item}
-                alreadyInLibrary={inLibrary(item.rawg_id)}
+                alreadyInLibrary={inLibrary(item.igdb_id)}
                 owning={owningId === item.id}
                 onOwn={() => handleOwn(item)}
                 onRemove={() => removeFromWishlist(item.id)}
@@ -376,10 +376,10 @@ export const WishlistView: React.FC = () => {
 };
 
 interface WishlistSearchCardProps {
-  game: RawgGame;
+  game: IGDBGame;
   alreadyWishlisted: boolean;
   alreadyInLibrary: boolean;
-  onAdd: (game: RawgGame) => void;
+  onAdd: (game: IGDBGame) => void;
 }
 
 const WishlistSearchCard = React.memo<WishlistSearchCardProps>(({ game, alreadyWishlisted, alreadyInLibrary, onAdd }) => (

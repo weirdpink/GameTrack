@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { normalizePlatformIds } from "../src/constants";
 import { DATA_DIR, ensureDataDir } from "./paths";
+import { getSteamPosterImage } from "./steam";
 
 // Database lives inside the data directory for full portability.
 const DB_PATH = path.join(DATA_DIR, "gametrack.db");
@@ -29,7 +30,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
     year INTEGER,
-    rawg_id INTEGER,
+    igdb_id INTEGER,
     genres TEXT DEFAULT '[]',
     synopsis TEXT DEFAULT '',
     poster_url TEXT DEFAULT '',
@@ -64,7 +65,7 @@ db.exec(`
 // only after a block completes successfully; a failed migration fails loudly
 // at startup instead of being silently re-run every boot.
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 9;
 
 function migrateTo(target: number) {
   const current = Number(db.pragma("user_version", { simple: true })) || 0;
@@ -90,14 +91,9 @@ function runMigration(version: number) {
       db.exec("CREATE INDEX IF NOT EXISTS idx_games_steam ON games(steam_appid)");
     }
 
-    // RAWG was removed — the external game id column was renamed to igdb_id.
-    if (gameColumns.some((col) => col.name === "rawg_id") && !gameColumns.some((col) => col.name === "igdb_id")) {
-      db.exec("ALTER TABLE games RENAME COLUMN rawg_id TO igdb_id");
-      db.exec("DROP INDEX IF EXISTS idx_games_rawg");
-      db.exec("CREATE INDEX IF NOT EXISTS idx_games_igdb ON games(igdb_id)");
-    } else {
-      db.exec("CREATE INDEX IF NOT EXISTS idx_games_igdb ON games(igdb_id)");
-    }
+    // The external game id column is igdb_id. Databases created during the
+    // short-lived RAWG era are converted by the v8 migration below.
+    db.exec("CREATE INDEX IF NOT EXISTS idx_games_igdb ON games(igdb_id)");
 
     // "Main Story Done, Playing" was removed — convert existing entries to Completed.
     db.exec("UPDATE games SET status = 'completed' WHERE status = 'main_complete'");
@@ -203,10 +199,7 @@ function runMigration(version: number) {
 
     // Ensure igdb_id column exists on games table
     const currentGamesCols = db.prepare("PRAGMA table_info(games)").all() as any[];
-    if (currentGamesCols.some((col) => col.name === "rawg_id") && !currentGamesCols.some((col) => col.name === "igdb_id")) {
-      db.exec("ALTER TABLE games RENAME COLUMN rawg_id TO igdb_id");
-      db.exec("DROP INDEX IF EXISTS idx_games_rawg");
-    } else if (!currentGamesCols.some((col) => col.name === "igdb_id")) {
+    if (!currentGamesCols.some((col) => col.name === "igdb_id")) {
       db.exec("ALTER TABLE games ADD COLUMN igdb_id INTEGER");
     }
     db.exec("DROP INDEX IF EXISTS idx_games_igdb");
@@ -214,10 +207,7 @@ function runMigration(version: number) {
 
     // Ensure igdb_id column exists on wishlist table
     const currentWishlistCols = db.prepare("PRAGMA table_info(wishlist)").all() as any[];
-    if (currentWishlistCols.some((col) => col.name === "rawg_id") && !currentWishlistCols.some((col) => col.name === "igdb_id")) {
-      db.exec("ALTER TABLE wishlist RENAME COLUMN rawg_id TO igdb_id");
-      db.exec("DROP INDEX IF EXISTS idx_wishlist_rawg");
-    } else if (!currentWishlistCols.some((col) => col.name === "igdb_id")) {
+    if (!currentWishlistCols.some((col) => col.name === "igdb_id")) {
       db.exec("ALTER TABLE wishlist ADD COLUMN igdb_id INTEGER");
     }
     db.exec("DROP INDEX IF EXISTS idx_wishlist_igdb");
@@ -225,41 +215,135 @@ function runMigration(version: number) {
   }
 
   if (version === 7) {
-    // We are completely switching from IGDB to RAWG.
-    // Rename igdb_id columns to rawg_id.
-    const currentGamesCols = db.prepare("PRAGMA table_info(games)").all() as any[];
-    if (currentGamesCols.some((col) => col.name === "igdb_id")) {
-      db.exec("ALTER TABLE games RENAME COLUMN igdb_id TO rawg_id");
-      db.exec("DROP INDEX IF EXISTS idx_games_igdb");
-      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_games_rawg ON games(rawg_id) WHERE rawg_id IS NOT NULL");
-    }
-    
-    const currentWishlistCols = db.prepare("PRAGMA table_info(wishlist)").all() as any[];
-    if (currentWishlistCols.some((col) => col.name === "igdb_id")) {
-      db.exec("ALTER TABLE wishlist RENAME COLUMN igdb_id TO rawg_id");
-      db.exec("DROP INDEX IF EXISTS idx_wishlist_igdb");
-      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlist_rawg ON wishlist(rawg_id) WHERE rawg_id IS NOT NULL");
+    // v7 was the short-lived RAWG migration, which renamed igdb_id -> rawg_id.
+    // It is a deliberate no-op now: v8 below restores the IGDB column naming
+    // for any database that already ran it, so a fresh install (which creates
+    // igdb_id directly) and an upgraded install both converge on igdb_id.
+  }
+
+  if (version === 8) {
+    // RAWG support was removed — the app is IGDB-only again. Converge every
+    // RAWG remnant (columns, uniqueness indexes, poster URLs) back onto IGDB.
+    normalizeRawgRemnants();
+    normalizePosterPolicy();
+  }
+
+  if (version === 9) {
+    // The RAWG era rewrote the whole id column with RAWG's own numbers, so the
+    // values that survived the rename above are NOT IGDB ids — they would make
+    // the details modal and Discover resolve the wrong game. Clear them and
+    // let scripts/reset-metadata.ts repopulate real IGDB ids (it matches every
+    // title against IGDB and also restores the posters).
+    const staleIds = db.prepare("SELECT COUNT(*) AS n FROM games WHERE igdb_id IS NOT NULL").get() as { n: number };
+    db.exec("UPDATE games SET igdb_id = NULL WHERE igdb_id IS NOT NULL");
+    db.exec("UPDATE wishlist SET igdb_id = NULL WHERE igdb_id IS NOT NULL");
+    if (staleIds.n > 0) {
+      console.warn(
+        `[db] Cleared ${staleIds.n} RAWG-era external id(s) — run \`npm run reset-metadata\` to re-link them to IGDB.`
+      );
     }
   }
 }
 
-migrateTo(SCHEMA_VERSION);
+// ── RAWG remnant cleanup ────────────────────────────────────────────
+// The app briefly shipped with RAWG as its metadata provider. That switch has
+// been fully reverted, so any database touched by it is converged back onto the
+// IGDB schema here. Both helpers are idempotent, which lets ensureSchemaIntegrity()
+// re-run them defensively on every boot.
 
-// Defensive integrity check on startup
-function ensureSchemaIntegrity() {
+/**
+ * Restore `igdb_id` as the single external-provider column (games + wishlist)
+ * and rebuild the uniqueness indexes on it.
+ */
+function normalizeRawgRemnants() {
   const gamesCols = db.prepare("PRAGMA table_info(games)").all() as any[];
-  if (gamesCols.some((col) => col.name === "igdb_id") && !gamesCols.some((col) => col.name === "rawg_id")) {
-    db.exec("ALTER TABLE games RENAME COLUMN igdb_id TO rawg_id");
-    db.exec("DROP INDEX IF EXISTS idx_games_igdb");
-    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_games_rawg ON games(rawg_id) WHERE rawg_id IS NOT NULL");
+  if (gamesCols.some((col) => col.name === "rawg_id") && !gamesCols.some((col) => col.name === "igdb_id")) {
+    db.exec("ALTER TABLE games RENAME COLUMN rawg_id TO igdb_id");
   }
+  db.exec("DROP INDEX IF EXISTS idx_games_rawg");
+  const gamesColsAfterRename = db.prepare("PRAGMA table_info(games)").all() as any[];
+  if (gamesColsAfterRename.some((col) => col.name === "rawg_id")) {
+    // Both columns existed, which means the rawg_id values are RAWG ids and can
+    // never be used as IGDB ids — blank them and drop the column if we can.
+    db.exec("UPDATE games SET rawg_id = NULL");
+    try {
+      db.exec("ALTER TABLE games DROP COLUMN rawg_id");
+    } catch (err) {
+      console.warn("Could not drop legacy games.rawg_id column:", err);
+    }
+  }
+  // De-duplicate before rebuilding the unique index (keep the oldest row) so a
+  // database that predates the index can't fail the migration.
+  db.exec(`
+    DELETE FROM games
+    WHERE igdb_id IS NOT NULL
+      AND id NOT IN (SELECT MIN(id) FROM games WHERE igdb_id IS NOT NULL GROUP BY igdb_id)
+  `);
+  db.exec("DROP INDEX IF EXISTS idx_games_igdb");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_games_igdb ON games(igdb_id) WHERE igdb_id IS NOT NULL");
 
   const wishlistCols = db.prepare("PRAGMA table_info(wishlist)").all() as any[];
-  if (wishlistCols.some((col) => col.name === "igdb_id") && !wishlistCols.some((col) => col.name === "rawg_id")) {
-    db.exec("ALTER TABLE wishlist RENAME COLUMN igdb_id TO rawg_id");
-    db.exec("DROP INDEX IF EXISTS idx_wishlist_igdb");
-    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlist_rawg ON wishlist(rawg_id) WHERE rawg_id IS NOT NULL");
+  if (wishlistCols.some((col) => col.name === "rawg_id") && !wishlistCols.some((col) => col.name === "igdb_id")) {
+    db.exec("ALTER TABLE wishlist RENAME COLUMN rawg_id TO igdb_id");
   }
+  db.exec("DROP INDEX IF EXISTS idx_wishlist_rawg");
+  const wishlistColsAfterRename = db.prepare("PRAGMA table_info(wishlist)").all() as any[];
+  if (wishlistColsAfterRename.some((col) => col.name === "rawg_id")) {
+    db.exec("UPDATE wishlist SET rawg_id = NULL");
+    try {
+      db.exec("ALTER TABLE wishlist DROP COLUMN rawg_id");
+    } catch (err) {
+      console.warn("Could not drop legacy wishlist.rawg_id column:", err);
+    }
+  }
+  db.exec(`
+    DELETE FROM wishlist
+    WHERE igdb_id IS NOT NULL
+      AND id NOT IN (SELECT MIN(id) FROM wishlist WHERE igdb_id IS NOT NULL GROUP BY igdb_id)
+  `);
+  db.exec("DROP INDEX IF EXISTS idx_wishlist_igdb");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlist_igdb ON wishlist(igdb_id) WHERE igdb_id IS NOT NULL");
+}
+
+/**
+ * Poster policy: a row owned on Steam always uses the Steam CDN portrait (the
+ * exact artwork for that appid); every other row uses its IGDB cover. The RAWG
+ * era repointed both kinds of row at media.rawg.io, so Steam rows are repaired
+ * here and non-Steam rows are blanked — a dead RAWG link is never rendered, and
+ * the IGDB cover is restored by scripts/fetch-all-igdb-posters.ts or by the
+ * details modal's "Sync Poster" action.
+ */
+export function normalizePosterPolicy(): number {
+  const staleGames = db
+    .prepare("SELECT id, steam_appid FROM games WHERE poster_url = '' OR poster_url LIKE '%rawg.io%'")
+    .all() as { id: number; steam_appid: number | null }[];
+  const staleWishlist = db
+    .prepare("SELECT id FROM wishlist WHERE poster_url = '' OR poster_url LIKE '%rawg.io%'")
+    .all() as { id: number }[];
+
+  if (!staleGames.length && !staleWishlist.length) return 0;
+
+  const updateGame = db.prepare("UPDATE games SET poster_url = ? WHERE id = ?");
+  const updateWishlist = db.prepare("UPDATE wishlist SET poster_url = ? WHERE id = ?");
+  const apply = db.transaction(() => {
+    for (const row of staleGames) {
+      updateGame.run(row.steam_appid != null ? getSteamPosterImage(row.steam_appid) : "", row.id);
+    }
+    for (const row of staleWishlist) updateWishlist.run("", row.id);
+  });
+  apply();
+
+  return staleGames.filter((row) => row.steam_appid != null).length;
+}
+
+migrateTo(SCHEMA_VERSION);
+
+// Defensive integrity check on startup — cheap, idempotent guards so a database
+// that never ran the versioned migrations (or was written by older code) still
+// boots on the IGDB schema.
+function ensureSchemaIntegrity() {
+  normalizeRawgRemnants();
+  normalizePosterPolicy();
 }
 
 ensureSchemaIntegrity();

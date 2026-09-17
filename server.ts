@@ -76,7 +76,7 @@ export async function createApp(production = false) {
               imgSrc: [
                 "'self'",
                 "data:",
-                "https://media.rawg.io",
+                "https://images.igdb.com",
                 "https://images.unsplash.com",
                 "https://shared.cloudflare.steamstatic.com",
                 "https://cdn.akamai.steamstatic.com",
@@ -467,7 +467,7 @@ async function startServer() {
 }
 
 // Tests import this module to build an app via createApp() — never start the
-// real listener (or schedule real Steam/RAWG calls) inside the test process.
+// real listener (or schedule real Steam/IGDB calls) inside the test process.
 if (process.env.NODE_ENV !== "test") {
   startServer().catch((err) => {
     console.error("Failed to start server:", err);

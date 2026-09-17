@@ -10,9 +10,9 @@ interface PosterImageProps {
 /**
  * Poster with graceful fallbacks:
  *  1. if poster_url is empty OR the image fails to load (dead CDN link,
- *     expired RAWG cover, hotlink block), render the curated fallback;
+ *     expired IGDB cover, hotlink block), render the curated fallback;
  *  2. if the curated fallback itself fails, render a neutral placeholder.
- * `referrerPolicy="no-referrer"` is required — RAWG and Steam CDNs reject
+ * `referrerPolicy="no-referrer"` is required — IGDB and Steam CDNs reject
  * requests that carry a Referer header.
  */
 export const PosterImage: React.FC<PosterImageProps> = ({ src, alt = "", className }) => {

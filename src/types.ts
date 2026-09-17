@@ -2,7 +2,7 @@ export interface Game {
   id: number;
   title: string;
   year: number | null;
-  rawg_id: number | null;
+  igdb_id: number | null;
   genres: string[];
   synopsis: string;
   poster_url: string;
@@ -37,8 +37,8 @@ export interface GenreAnalytics {
 
 export interface NextToPlaySuggestion extends Game {}
 
-export interface RawgGame {
-  rawg_id: number;
+export interface IGDBGame {
+  igdb_id: number;
   title: string;
   year: number | null;
   genres: string[];
@@ -49,15 +49,15 @@ export interface RawgGame {
 }
 
 export interface DiscoverLists {
-  topThisMonth: RawgGame[];
-  bestAllTime: RawgGame[];
-  newReleases: RawgGame[];
-  mostHyped: RawgGame[];
+  topThisMonth: IGDBGame[];
+  bestAllTime: IGDBGame[];
+  newReleases: IGDBGame[];
+  mostHyped: IGDBGame[];
 }
 
 export interface WishlistItem {
   id: number;
-  rawg_id: number | null;
+  igdb_id: number | null;
   title: string;
   year: number | null;
   genres: string[];
@@ -69,11 +69,11 @@ export interface WishlistItem {
 }
 
 /**
- * Manual (self-entered) wishlist entry — everything RawgGame carries, except
- * `rawg_id` is optional since hand-typed games were never in the database.
+ * Manual (self-entered) wishlist entry — everything IGDBGame carries, except
+ * `igdb_id` is optional since hand-typed games were never in the database.
  */
 export interface ManualWishlistEntry {
-  rawg_id: number | null;
+  igdb_id: number | null;
   title: string;
   year: number | null;
   genres?: string[];
