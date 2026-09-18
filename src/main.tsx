@@ -3,6 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'motion/react';
 import App from './App.tsx';
 import './index.css';
+import { installApiAuth } from './utils/api.ts';
+
+// Attach the API-token fetch interceptor before anything can request —
+// required for token-protected (non-loopback) deployments.
+installApiAuth();
 
 // If anything inside the app throws during boot, lift the boot screen and
 // show a minimal terminal-style error instead of a stuck loading screen.

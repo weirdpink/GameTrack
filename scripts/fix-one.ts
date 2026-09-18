@@ -24,24 +24,35 @@ async function run(): Promise<void> {
   }
   const mapped = mapIgdbGame(match);
   console.log(`Matched "${row.title}" -> IGDB #${mapped.igdb_id} "${mapped.title}" (${mapped.year})`);
-  db.prepare(
-    `UPDATE games
-     SET igdb_id = @igdb_id,
-         year = COALESCE(@year, year),
-         genres = @genres,
-         synopsis = @synopsis,
-         critic_score = COALESCE(@critic_score, critic_score),
-         updated_at = @updated_at
-     WHERE id = @id`
-  ).run({
-    id: row.id,
-    igdb_id: mapped.igdb_id,
-    year: mapped.year,
-    genres: JSON.stringify(mapped.genres.length ? mapped.genres : []),
-    synopsis: mapped.synopsis,
-    critic_score: mapped.critic_score,
-    updated_at: Date.now(),
-  });
+  try {
+    db.prepare(
+      `UPDATE games
+       SET igdb_id = @igdb_id,
+           year = COALESCE(@year, year),
+           genres = @genres,
+           synopsis = @synopsis,
+           critic_score = COALESCE(@critic_score, critic_score),
+           updated_at = @updated_at
+       WHERE id = @id`
+    ).run({
+      id: row.id,
+      igdb_id: mapped.igdb_id,
+      year: mapped.year,
+      genres: JSON.stringify(mapped.genres.length ? mapped.genres : []),
+      synopsis: mapped.synopsis,
+      critic_score: mapped.critic_score,
+      updated_at: Date.now(),
+    });
+  } catch (err: unknown) {
+    if (err instanceof Error && /UNIQUE constraint failed/i.test(err.message)) {
+      console.error(
+        `IGDB #${mapped.igdb_id} is already claimed by another library row — id left empty. ` +
+          `Remove the duplicate row first, then re-run.`
+      );
+      process.exit(1);
+    }
+    throw err;
+  }
   console.log("Row updated (poster untouched).");
 }
 

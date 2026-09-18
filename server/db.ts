@@ -12,8 +12,13 @@ const DB_PATH = path.join(DATA_DIR, "gametrack.db");
 ensureDataDir();
 
 const db = new Database(DB_PATH);
-// Restrict database file permissions
-fs.chmodSync(DB_PATH, 0o600);
+// Restrict database file permissions (best-effort: read-only mounts and some
+// container volumes deny chmod, which must never crash startup).
+try {
+  fs.chmodSync(DB_PATH, 0o600);
+} catch (err) {
+  console.warn("Could not set database file permissions:", err instanceof Error ? err.message : err);
+}
 
 // ── Performance tuning ────────────────────────────────────────────
 // WAL mode allows concurrent reads while writing and is significantly
@@ -23,6 +28,10 @@ db.pragma("synchronous = NORMAL");
 db.pragma("foreign_keys = ON");
 db.pragma("busy_timeout = 5000");
 db.pragma("cache_size = -64000");
+// Bound WAL growth on crash-prone hosts: the 5-minute background sync writes
+// constantly, and without a size limit a killed process can leave a huge
+// -wal file behind. SQLite auto-checkpoints past this threshold.
+db.pragma("journal_size_limit = 67108864");
 
 // ── Schema ────────────────────────────────────────────────────────
 db.exec(`

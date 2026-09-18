@@ -14,7 +14,10 @@ export default defineConfig(() => {
     build: {
       target: 'es2022',
       minify: 'esbuild',
-      sourcemap: true,
+      // No source maps in the shipped client bundle — they expose full
+      // source to anyone opening devtools. (The server bundle keeps its
+      // local .map for stack traces; it is never served.)
+      sourcemap: false,
       rollupOptions: {
         output: {
           manualChunks(id) {

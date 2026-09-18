@@ -277,7 +277,7 @@ export const LandingView: React.FC<{ onEnter: () => void }> = React.memo(({ onEn
                 </button>
                 <a
                   href="#link"
-                  className="flex items-center justify-center gap-2.5 px-7 py-3.5 bg-transparent hover:bg-zinc-900 text-white text-xs font-black uppercase tracking-widest rounded-none border border-brand-border hover:border-brand-accent/60 transition-all"
+                  className="flex items-center justify-center gap-2.5 px-7 py-3.5 bg-transparent hover:bg-zinc-900 text-white text-xs font-sans font-black uppercase tracking-widest rounded-none border border-brand-border hover:border-brand-accent/60 transition-all"
                 >
                   Scan Features
                   <ArrowDown className="w-4 h-4" />

@@ -63,7 +63,7 @@ export const Toast: React.FC = () => {
                     {toast.message}
                   </p>
                   {toast.description && (
-                    <p className="text-[10px] font-mono uppercase tracking-wider text-brand-muted truncate">
+                    <p title={toast.description} className="text-[10px] font-mono uppercase tracking-wider text-brand-muted truncate">
                       {toast.description}
                     </p>
                   )}

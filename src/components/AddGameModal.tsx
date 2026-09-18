@@ -42,6 +42,7 @@ export const AddGameModal: React.FC = React.memo(() => {
   const [selectedTitle, setSelectedTitle] = useState("");
 
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  const posterFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -54,7 +55,7 @@ export const AddGameModal: React.FC = React.memo(() => {
   }, []);
 
   useEffect(() => {
-    if (!title.trim() || title.length < 2 || title === selectedTitle) {
+    if (!title.trim() || title.length < 3 || title === selectedTitle) {
       setSuggestions([]);
       setLoadingSuggestions(false);
       setShowSuggestions(false);
@@ -79,7 +80,7 @@ export const AddGameModal: React.FC = React.memo(() => {
       } finally {
         if (!controller.signal.aborted) setLoadingSuggestions(false);
       }
-    }, 90); // 90ms debounce — suggestions should appear as you type
+    }, 250); // 250ms debounce — suggestions stay responsive without spamming the registry proxy
 
     return () => {
       clearTimeout(delayDebounceFn);
@@ -173,13 +174,11 @@ export const AddGameModal: React.FC = React.memo(() => {
       };
 
       if (target === "wishlist") {
+        // addToWishlist already toasts success + failure — no second toast here.
         const ok = await addToWishlist(commonPayload);
         if (ok) {
           resetForm();
           setAddGameOpen(false);
-          showToast("Added to wishlist", "success", trimmedTitle);
-        } else {
-          showToast("Failed to add to wishlist", "error");
         }
         return;
       }
@@ -246,6 +245,12 @@ export const AddGameModal: React.FC = React.memo(() => {
   };
 
   const modalRef = useModalA11y(isAddGameOpen);
+
+  // Fresh form on every open — never show the previous entry's leftovers.
+  useEffect(() => {
+    if (isAddGameOpen) resetForm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAddGameOpen]);
 
   useEffect(() => {
     if (!isAddGameOpen) return;
@@ -435,7 +440,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                             )}
                           </div>
                         </div>
-                        {showCriticScores && suggestion.critic_score && (
+                        {showCriticScores && suggestion.critic_score != null && (
                           <div className="bg-zinc-900 border border-brand-border/60 px-1.5 py-0.5 text-[11px] font-mono font-bold text-brand-accent">
                             {suggestion.critic_score}
                           </div>
@@ -508,7 +513,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                   setPersonalRating("");
                   setRatingHover(null);
                 }}
-                className={`aspect-square w-full text-[11px] font-mono font-black border transition-colors duration-100 cursor-pointer flex items-center justify-center ${
+                className={`aspect-square w-full text-[11px] font-sans font-black border transition-colors duration-100 cursor-pointer flex items-center justify-center ${
                   ratingValue > 0
                     ? "bg-zinc-950 border-brand-border text-white hover:border-red-500/60 hover:text-red-400"
                     : "bg-zinc-950 border-brand-border text-brand-muted hover:text-white"
@@ -527,7 +532,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                     onClick={() => setPersonalRating(ratingValue === n ? "" : String(n))}
                     onMouseEnter={() => setRatingHover(n)}
                     onMouseLeave={() => setRatingHover(null)}
-                    className={`aspect-square w-full text-[11px] font-mono font-black border transition-colors duration-100 cursor-pointer select-none ${
+                    className={`aspect-square w-full text-[11px] font-sans font-black border transition-colors duration-100 cursor-pointer select-none ${
                       active
                         ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
                         : "bg-zinc-950 border-brand-border text-brand-muted hover:border-brand-accent/60 hover:text-white"
@@ -663,25 +668,34 @@ export const AddGameModal: React.FC = React.memo(() => {
                 placeholder="https://example.com/poster.jpg"
                 className="flex-1 px-4 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
               />
-              <label className="px-4 py-2.5 bg-zinc-900 border border-brand-border text-xs font-bold uppercase tracking-wider text-zinc-300 hover:bg-zinc-800 cursor-pointer text-center select-none shrink-0 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => posterFileInputRef.current?.click()}
+                className="px-4 py-2.5 bg-zinc-900 border border-brand-border text-xs font-bold uppercase tracking-wider text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-2 focus-visible:outline-brand-accent cursor-pointer text-center select-none shrink-0 flex items-center justify-center"
+              >
                 Upload Poster
-                 <input
-                   type="file"
-                   accept="image/*"
-                   className="hidden"
-                   onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        try {
-                          const url = await uploadPoster(file);
-                          setPosterUrl(url);
-                        } catch (err: unknown) {
-                          showToast(err instanceof Error ? err.message : "Failed to upload poster", "error");
-                        }
-                      }
-                    }}
-                 />
-              </label>
+              </button>
+              <input
+                ref={posterFileInputRef}
+                type="file"
+                accept="image/*"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  // Reset so picking the same file twice still fires onChange.
+                  e.target.value = "";
+                  if (file) {
+                    try {
+                      const url = await uploadPoster(file);
+                      setPosterUrl(url);
+                    } catch (err: unknown) {
+                      showToast(err instanceof Error ? err.message : "Failed to upload poster", "error");
+                    }
+                  }
+                }}
+              />
               {posterUrl && (
                 <button
                   type="button"

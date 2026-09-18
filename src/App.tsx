@@ -14,13 +14,13 @@ import AuthModal from "./components/AuthModal";
 import GameDetailsModal from "./components/GameDetailsModal";
 import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
-import { Menu, X, Settings, Joystick } from "lucide-react";
+import { Menu, X, Settings } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 
 const ENTERED_KEY = "gametrack_entered";
 
 export default function App() {
-  const { 
+  const {
     activeTab, setActiveTab, fetchGames, fetchAnalytics,
     fetchTrending, fetchDiscoverLists,
     steamSettings, setSettingsOpen, fetchSteamSettings,
@@ -180,7 +180,7 @@ const tabs = [
       <div className="flex-1 grid grid-cols-1 md:grid-cols-[200px_1fr] min-h-0 relative z-10">
         
         {/* Sidebar Left panel (Desktop Only) */}
-        <aside className="hidden md:flex flex-col justify-between px-8 pt-10 pb-4 border-r border-brand-border bg-brand-bg relative z-10">
+        <aside className="hidden md:flex flex-col justify-between px-9 pt-10 pb-4 border-r border-brand-border bg-brand-bg relative z-10">
           <div className="space-y-16">
             {/* Branding Logo */}
             <button
@@ -218,24 +218,15 @@ const tabs = [
             </nav>
           </div>
 
-          {/* Steam Identity */}
-          <div className="pt-6 mt-auto">
-            <div className="-mx-3 p-3">
-              <div className="flex items-center gap-3">
-                <div className="shrink-0 w-9 h-9 bg-zinc-900 border border-brand-border flex items-center justify-center overflow-hidden">
-                  {steamSettings?.avatarUrl ? (
-                    <img src={steamSettings.avatarUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <Joystick className="w-4 h-4 text-brand-accent" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-black tracking-tight text-white truncate">
-                    {steamSettings?.steamName || "Operator"}
-                  </p>
-                </div>
-              </div>
-            </div>
+          {/* Sidebar Settings */}
+          <div className="pt-6 mt-auto space-y-3">
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/60 text-brand-muted hover:text-white text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer"
+            >
+              Settings
+            </button>
           </div>
         </aside>
 
@@ -264,7 +255,14 @@ const tabs = [
 
         {/* Mobile Dropdown Navigation Menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden absolute top-[65px] inset-x-0 bg-brand-bg border-b border-brand-border z-30 px-6 py-6 space-y-4">
+          <div
+            role="dialog"
+            aria-modal="false"
+            aria-label="Mobile navigation"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setMobileMenuOpen(false);
+            }}
+            className="md:hidden absolute top-[65px] inset-x-0 bg-brand-bg border-b border-brand-border z-30 px-6 py-6 space-y-4">
             <nav className="flex flex-col gap-4">
               {tabs.map((tab) => {
                 const isActive = activeTab === tab.id;
@@ -286,21 +284,13 @@ const tabs = [
               })}
             </nav>
             <div className="border-t border-brand-border pt-4 mt-4">
-              <div 
+              <button
+                type="button"
                 onClick={() => {
                   setSettingsOpen(true);
                   setMobileMenuOpen(false);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setSettingsOpen(true);
-                    setMobileMenuOpen(false);
-                  }
-                }}
-                tabIndex={0}
-                role="button"
-                className="cursor-pointer group flex items-center justify-between gap-3 focus:outline-none focus:border-brand-accent"
+                className="cursor-pointer group flex items-center justify-between gap-3 w-full text-left bg-transparent border-none p-0 focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent"
               >
                 <div className="min-w-0 flex-1">
                   <p className="text-[11px] font-mono text-brand-muted uppercase">
@@ -314,29 +304,20 @@ const tabs = [
                   </p>
                 </div>
                 <div
+                  aria-hidden="true"
                   className="p-1.5 bg-zinc-900 text-brand-muted hover:text-brand-accent border border-brand-border rounded-none hover:bg-zinc-800 transition-colors shrink-0 flex items-center justify-center"
                   title="Open Settings"
                 >
                   <Settings className="w-4 h-4" />
                 </div>
-              </div>
+              </button>
             </div>
           </div>
         )}
 
         {/* Main Workspace Right pane */}
         <main ref={mainRef} className="flex-1 flex flex-col min-w-0 min-h-0 bg-brand-bg overflow-y-auto scroll-smooth antialiased">
-          {/* Persistent settings access — lives outside the animated view
-              container so it never remounts or flashes on tab switches. */}
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="hidden md:flex fixed top-6 right-6 z-30 p-3 bg-zinc-900 hover:bg-zinc-800 border border-brand-border text-brand-muted hover:text-white transition-all cursor-pointer"
-            title="Open Settings"
-            aria-label="Open Settings"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-          <div className="w-full px-6 md:px-12 md:pr-24 py-10 pb-24 overflow-x-hidden shrink-0 relative">
+          <div className="w-full px-6 md:px-12 py-10 pb-24 overflow-x-hidden shrink-0 relative">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={activeTab}

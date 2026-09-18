@@ -34,7 +34,8 @@ export function escapeIgdbQuery(s: string): string {
 }
 
 function releaseYear(game: IgdbRawGame): number | null {
-  return game.first_release_date ? new Date(game.first_release_date * 1000).getFullYear() : null;
+  // UTC: server-local timezones shift the year for releases near Jan 1.
+  return game.first_release_date ? new Date(game.first_release_date * 1000).getUTCFullYear() : null;
 }
 
 function scoreCandidate(game: IgdbRawGame, normalizedTarget: string, year: number | null): number {

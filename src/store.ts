@@ -19,7 +19,7 @@ export interface ToastItem {
 
 // One auto-dismiss timer per toast, so the queue can pause/resume/dismiss
 // individual notifications without affecting the others.
-const toastTimers = new Map<number, NodeJS.Timeout>();
+const toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const toastDeadlines = new Map<number, number>();
 let toastIdCounter = 0;
 

@@ -24,7 +24,7 @@ if (!Number.isInteger(PORT) || PORT <= 0 || PORT > 65535) {
 
 // Fail-closed: never bind to a non-loopback interface without a token.
 // Otherwise any host that can reach the server gains full read/write/wipe.
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "::"]);
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 if (!API_TOKEN && HOST !== "127.0.0.1" && !LOOPBACK_HOSTS.has(HOST)) {
   console.error(
     "Refusing to start: binding to a non-loopback host requires API_TOKEN. " +
@@ -47,9 +47,10 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 function tokenMatches(supplied: string): boolean {
-  const a = Buffer.from(supplied);
-  const b = Buffer.from(API_TOKEN);
-  if (a.length !== b.length) return false;
+  // Hash both sides first so a length mismatch can't leak the token length
+  // through response timing before the constant-time compare runs.
+  const a = crypto.createHash("sha256").update(supplied).digest();
+  const b = crypto.createHash("sha256").update(API_TOKEN).digest();
   return crypto.timingSafeEqual(a, b);
 }
 
@@ -95,6 +96,8 @@ export async function createApp(production = false) {
               ],
               connectSrc: ["'self'"],
               frameAncestors: ["'none'"],
+              baseUri: ["'self'"],
+              objectSrc: ["'none'"],
             },
           }
         : false,
@@ -110,7 +113,9 @@ export async function createApp(production = false) {
   const stateChanging = ["POST", "PUT", "DELETE"];
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (!stateChanging.includes(req.method)) return next();
-    const origin = req.headers.origin;
+    // Origins are case-insensitive (scheme/host); normalize before comparing
+    // so a differently-cased but allowlisted origin isn't wrongly rejected.
+    const origin = req.headers.origin?.trim().toLowerCase();
     if (!origin || !ALLOWED_ORIGINS.has(origin)) {
       return res.status(403).json({ error: "Forbidden: Invalid request origin." });
     }
@@ -134,8 +139,16 @@ export async function createApp(production = false) {
 
   // ── Server-Sent Events — live sync notifications for connected browsers ──
   // Registered before the API auth gate so the browser can subscribe without
-  // a token; it only carries sync status, never sensitive data.
-  app.get("/api/events", (req: Request, res: Response) => {
+  // a token; it only carries sync status, never sensitive data. Rate-limited
+  // so idle clients can't hold unbounded connections (connection-holding DoS).
+  const sseLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many event subscriptions, please slow down." },
+  });
+  app.get("/api/events", sseLimiter, (req: Request, res: Response) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -242,6 +255,17 @@ export async function createApp(production = false) {
     message: { error: "Too many Steam link attempts, please slow down." },
   });
   app.put("/api/settings/steam", steamLinkLimiter);
+
+  // Wiping deletes the whole library — throttle hard even though the UI
+  // already gates it behind a typed confirmation.
+  const wipeLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many wipe attempts, please slow down." },
+  });
+  app.delete("/api/wipe", wipeLimiter);
 
   // No-cache headers for all API responses
   app.use("/api", (_req, res, next) => {
@@ -395,6 +419,10 @@ async function runBackgroundSync() {
 }
 
 function scheduleBackgroundSync() {
+  // Never orphan the in-flight handle: a tick that fires while the previous
+  // sync is still running skips instead of replacing the handle (which would
+  // make shutdown stop waiting for the real sync).
+  if (inFlightSync) return;
   inFlightSync = runBackgroundSync().finally(() => {
     inFlightSync = null;
   });
@@ -445,25 +473,38 @@ async function startServer() {
       } catch { /* already gone */ }
     }
     syncClients.clear();
+    let syncSettled = !inFlightSync;
     if (inFlightSync) {
       console.log("[Background Sync] Waiting for in-flight sync to finish...");
       await Promise.race([
-        inFlightSync,
-        new Promise((resolve) => setTimeout(resolve, 10_000)),
+        inFlightSync.then(
+          () => { syncSettled = true; },
+          () => { syncSettled = true; }
+        ),
+        new Promise((resolve) => setTimeout(resolve, 30_000)),
       ]);
-      console.log("[Background Sync] In-flight sync settled.");
+      console.log(
+        syncSettled
+          ? "[Background Sync] In-flight sync settled."
+          : "[Background Sync] Sync still running after grace period — exiting without closing the DB handle (WAL recovery runs on next boot)."
+      );
     }
     server.close(() => {
       console.log("Server closed.");
-      db.close();
-      console.log("Database connection closed. Exiting.");
+      // Never close the DB underneath a live sync transaction — exiting lets
+      // the OS reclaim the handle and SQLite replays the WAL next startup.
+      if (syncSettled) {
+        db.close();
+        console.log("Database connection closed. Exiting.");
+      }
       process.exit(0);
     });
-    // Force exit after 10s if connections refuse to drain.
+    // Force exit if connections refuse to drain — past the 30s sync grace
+    // plus drain time.
     setTimeout(() => {
       console.error("Forced shutdown after timeout.");
       process.exit(1);
-    }, 10_000).unref();
+    }, 45_000).unref();
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));

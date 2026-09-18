@@ -3,7 +3,7 @@ import { useGameTrackStore } from "../store";
 import { motion, AnimatePresence } from "motion/react";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { 
-  Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, ChevronDown
+  Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, ChevronDown, Info
 } from "lucide-react";
 import { THEMES } from "../themes";
 
@@ -220,10 +220,14 @@ export const SettingsModal: React.FC = React.memo(() => {
                         <span className="shrink-0 ml-auto w-2 h-2 bg-emerald-500 animate-[pulse_2s_ease-in-out_infinite]" title="Connected" />
                       </div>
                       <a
-                        href={steamSettings.profile || `https://steamcommunity.com/profiles/${steamSettings.steamId}`}
+                        // Never render the raw stored profile string as a link —
+                        // it is free-form user input and could be a javascript:
+                        // URL. Only allow http(s); otherwise fall back to the
+                        // canonical SteamID profile URL.
+                        href={/^https?:\/\//i.test(steamSettings.profile || "") ? steamSettings.profile : `https://steamcommunity.com/profiles/${steamSettings.steamId}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/60 text-brand-accent text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                        className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/60 text-brand-accent text-[11px] font-sans font-black uppercase tracking-widest transition-all cursor-pointer"
                       >
                         <ExternalLink className="w-3 h-3" />
                         View Steam Profile
@@ -241,10 +245,26 @@ export const SettingsModal: React.FC = React.memo(() => {
               <div className="space-y-3.5">
                 <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Steam Link</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
-                  <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Library Auto-Sync</p>
-                  <p className="text-[11px] text-zinc-400 font-mono leading-relaxed">
-                    Link your Steam account to import your owned games automatically — titles, cover art, genres and playtime. Non-Steam games stay manual.
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Library Auto-Sync</p>
+                    <span className="relative inline-flex group/info">
+                      <button
+                        type="button"
+                        aria-label="About library auto-sync"
+                        aria-describedby="steam-sync-info"
+                        className="w-4 h-4 flex items-center justify-center rounded-full border border-brand-border text-brand-muted hover:text-brand-accent hover:border-brand-accent/60 transition-colors cursor-help"
+                      >
+                        <Info className="w-2.5 h-2.5" />
+                      </button>
+                      <span
+                        role="tooltip"
+                        id="steam-sync-info"
+                        className="absolute left-5 top-1/2 -translate-y-1/2 z-20 hidden group-hover/info:block group-focus-within/info:block w-56 p-2.5 bg-zinc-950 border border-brand-border text-[11px] text-zinc-400 font-mono leading-relaxed shadow-xl pointer-events-none"
+                      >
+                        Link your Steam account to import your owned games automatically — titles, cover art, genres and playtime. Non-Steam games stay manual.
+                      </span>
+                    </span>
+                  </div>
 
                   {steamSettings?.keySet && steamSettings?.steamId && !relinkMode ? (
                     <>
@@ -439,15 +459,15 @@ export const SettingsModal: React.FC = React.memo(() => {
 
                   {/* Badges Toggles */}
                   <div className="pt-2 border-t border-brand-border/40 space-y-2.5">
-                    <label className="flex items-center justify-between cursor-pointer group">
-                      <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
+                    <div className="flex items-center justify-between group">
+                      <span id="settings-toggle-playtime-label" className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
                         Show Playtime Badges
                       </span>
                       <button
                         type="button"
                         role="switch"
                         aria-checked={customizations.showPlaytimeBadge}
-                        aria-label="Toggle playtime badges"
+                        aria-labelledby="settings-toggle-playtime-label"
                         onClick={() => updateCustomizations({ showPlaytimeBadge: !customizations.showPlaytimeBadge })}
                         className={`relative w-10 h-5.5 shrink-0 border transition-colors cursor-pointer ${
                           customizations.showPlaytimeBadge
@@ -463,17 +483,17 @@ export const SettingsModal: React.FC = React.memo(() => {
                           }`}
                         />
                       </button>
-                    </label>
+                    </div>
 
-                    <label className="flex items-center justify-between cursor-pointer group">
-                      <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
+                    <div className="flex items-center justify-between group">
+                      <span id="settings-toggle-critic-label" className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
                         Show Critic Scores
                       </span>
                       <button
                         type="button"
                         role="switch"
                         aria-checked={customizations.showRatingBadge}
-                        aria-label="Toggle critic scores"
+                        aria-labelledby="settings-toggle-critic-label"
                         onClick={() => updateCustomizations({ showRatingBadge: !customizations.showRatingBadge })}
                         className={`relative w-10 h-5.5 shrink-0 border transition-colors cursor-pointer ${
                           customizations.showRatingBadge
@@ -489,7 +509,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                           }`}
                         />
                       </button>
-                    </label>
+                    </div>
                   </div>
 
                 </div>
@@ -556,11 +576,27 @@ export const SettingsModal: React.FC = React.memo(() => {
 
               {/* 6. Custom Platform Tags */}
               <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Custom Platform Tags</h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Custom Platform Tags</h4>
+                  <span className="relative inline-flex group/info">
+                    <button
+                      type="button"
+                      aria-label="About custom platform tags"
+                      aria-describedby="custom-tags-info"
+                      className="w-4 h-4 flex items-center justify-center rounded-full border border-brand-border text-brand-muted hover:text-brand-accent hover:border-brand-accent/60 transition-colors cursor-help"
+                    >
+                      <Info className="w-2.5 h-2.5" />
+                    </button>
+                    <span
+                      role="tooltip"
+                      id="custom-tags-info"
+                      className="absolute left-5 top-1/2 -translate-y-1/2 z-20 hidden group-hover/info:block group-focus-within/info:block w-56 p-2.5 bg-zinc-950 border border-brand-border text-[11px] text-zinc-400 font-mono leading-relaxed shadow-xl pointer-events-none"
+                    >
+                      Add your own ownership tags (stores, launchers, retro hardware…) — they appear in every game's platform checklist alongside the built-ins.
+                    </span>
+                  </span>
+                </div>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
-                  <p className="text-[11px] text-zinc-400 font-mono leading-relaxed">
-                    Add your own ownership tags (stores, launchers, retro hardware…) — they appear in every game's platform checklist alongside the built-ins.
-                  </p>
 
                   <div className="flex gap-2">
                     <input

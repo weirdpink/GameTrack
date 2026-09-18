@@ -197,6 +197,12 @@ html {
   background-color: var(--brand-bg);
 }
 
+/* Buttons always render in the sans-serif face, never inheriting a
+   monospace ancestor — the brand mono is reserved for data and labels. */
+button {
+  font-family: var(--font-sans);
+}
+
 /* Custom layout helper animations and marquee */
 @keyframes marquee {
   0% { transform: translateX(0%); }

@@ -212,6 +212,9 @@ export async function fetchSteamAppDetails(appid: number): Promise<SteamAppDetai
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
+    // Map aborts to SteamNetworkError like steamFetch does, so callers that
+    // distinguish error types never misread a timeout as an authoritative
+    // not-found (which would wrongly exclude a real game).
     const res = await fetch(
       `https://store.steampowered.com/api/appdetails?appids=${appid}&cc=us&l=en`,
       { signal: controller.signal }
@@ -223,6 +226,11 @@ export async function fetchSteamAppDetails(appid: number): Promise<SteamAppDetai
     const entry = data?.[String(appid)];
     if (!entry?.success || !entry.data) return null;
     return entry.data as SteamAppDetails;
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new SteamNetworkError(`Steam Store request timed out for app ${appid}`);
+    }
+    throw err;
   } finally {
     clearTimeout(timeoutId);
   }

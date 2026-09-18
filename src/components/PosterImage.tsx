@@ -29,7 +29,7 @@ export const PosterImage: React.FC<PosterImageProps> = ({ src, alt = "", classNa
   }, [src]);
 
   if (fallbackFailed) {
-    return <div aria-label={alt || "Poster"} className={`${className} bg-zinc-900 flex items-center justify-center`} />;
+    return <div role="img" aria-label={alt || "Poster"} className={`${className} bg-zinc-900 flex items-center justify-center`} />;
   }
 
   const showFallback = !src || failed;

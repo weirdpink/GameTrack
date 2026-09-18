@@ -164,7 +164,15 @@ export const AnalyticsView: React.FC = React.memo(() => {
             <BarChart2 className="w-4 h-4 text-brand-accent" />
             <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">01 // Genre telemetry Share</h3>
           </div>
-          <div className="h-72 w-full pt-4">
+          <div
+            className="h-72 w-full pt-4"
+            role="img"
+            aria-label={
+              genreAnalytics.length === 0
+                ? "Genre chart: no data"
+                : `Genre chart by playtime: ${genreAnalytics.slice(0, 7).map((g) => `${g.genre} ${Math.round(g.total_playtime || 0)} hours`).join(", ")}`
+            }
+          >
             {genreAnalytics.length === 0 ? (
               <div className="w-full h-full flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 font-mono text-xs uppercase text-brand-muted">
                 No genre metrics registry
@@ -284,7 +292,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
           <div className="pt-2">
             <div className="flex items-center justify-between gap-3 text-[11px] font-mono uppercase tracking-widest border-b border-brand-border/40 pb-3">
               <span className="text-brand-muted font-bold">COMPLETED REGISTRY</span>
-              <span className="text-brand-accent font-black">{completedList.length} TITLE{completedList.length === 1 ? "" : "S"}</span>
+              <span className="text-brand-accent font-black">{completedGames} TITLE{completedGames === 1 ? "" : "S"}</span>
             </div>
             {completedList.length === 0 ? (
               <div className="w-full h-48 flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 font-mono text-xs uppercase text-brand-muted">

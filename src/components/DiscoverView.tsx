@@ -137,9 +137,7 @@ export const DiscoverView: React.FC = () => {
     }
 
     return () => {
-      if (currentRef) {
-        observer.unobserve(currentRef);
-      }
+      observer.disconnect();
     };
   }, [hasMore, loadingDiscover, query, discoverQuery, searchDiscover, fetchTrending]);
 
@@ -450,7 +448,7 @@ export const DiscoverView: React.FC = () => {
                   </p>
                   
                   <div className="flex flex-wrap gap-2 pt-1">
-                    {customizations.showRatingBadge && infoModalGame.critic_score && (
+                    {customizations.showRatingBadge && infoModalGame.critic_score != null && (
                       <span className="px-2 py-0.5 rounded-none text-[11px] font-mono font-black bg-zinc-900 border border-brand-border text-brand-accent">
                         METACRITIC: {infoModalGame.critic_score}
                       </span>
@@ -827,7 +825,7 @@ const CuratedGameCard = React.memo<{
           </button>
         )}
         {!inLibrary && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[1px] opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto">
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[1px] opacity-0 invisible group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible transition-all duration-200 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto">
             <button
               type="button"
               onClick={(e) => {
@@ -842,7 +840,7 @@ const CuratedGameCard = React.memo<{
             </button>
           </div>
         )}
-        {showRating && game.critic_score && (
+        {showRating && game.critic_score != null && (
           <div className="absolute bottom-2 right-2 bg-zinc-950/90 backdrop-blur-sm px-1.5 py-0.5 text-[10px] font-mono font-black text-brand-accent border border-brand-border shadow-sm">
             {game.critic_score}
           </div>

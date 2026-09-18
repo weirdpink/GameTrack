@@ -45,7 +45,7 @@ export default function NotFoundView({ path }: NotFoundViewProps) {
             <div className="pt-2">
               <a
                 href="/"
-                className="inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-brand-accent hover:bg-brand-accent-hover active:scale-[0.98] text-brand-accent-ink text-xs font-black uppercase tracking-widest rounded-none transition-all"
+                className="inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-brand-accent hover:bg-brand-accent-hover active:scale-[0.98] text-brand-accent-ink text-xs font-sans font-black uppercase tracking-widest rounded-none transition-all"
               >
                 Return to the Registry
               </a>

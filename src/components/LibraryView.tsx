@@ -32,6 +32,15 @@ export const LibraryView: React.FC = () => {
 
   const [localSearch, setLocalSearch] = useState(filters.search);
   const [showFilters, setShowFilters] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Stay in sync when the filter is changed elsewhere (e.g. reset) — but
+  // never clobber text the user is actively typing.
+  useEffect(() => {
+    if (document.activeElement !== searchInputRef.current) {
+      setLocalSearch(filters.search);
+    }
+  }, [filters.search]);
 
   // Multi-select & Batch Delete state
   const [selectMode, setSelectMode] = useState(false);
@@ -309,6 +318,7 @@ export const LibraryView: React.FC = () => {
             <label htmlFor="library-search" className="sr-only">Search games</label>
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-brand-muted" />
             <input
+              ref={searchInputRef}
               id="library-search"
               type="text"
               value={localSearch}
@@ -499,7 +509,7 @@ export const LibraryView: React.FC = () => {
             <button
               type="button"
               onClick={selectedIds.size === filteredGames.length && filteredGames.length > 0 ? deselectAll : selectAll}
-              className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-400 hover:text-white underline cursor-pointer"
+              className="text-xs font-sans font-bold uppercase tracking-wider text-zinc-400 hover:text-white underline cursor-pointer"
             >
               {selectedIds.size === filteredGames.length && filteredGames.length > 0 ? "Deselect All" : `Select All (${filteredGames.length})`}
             </button>
@@ -668,7 +678,7 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
       onDragOver={reorderable ? (e) => { e.preventDefault(); onDragOverCard?.(game); } : undefined}
       onDragEnd={reorderable ? (e) => { e.preventDefault(); onDragEnd?.(); } : undefined}
       title={reorderable ? "Drag to reorder" : undefined}
-      className={`group bg-transparent rounded-none overflow-hidden cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2 transition-all duration-200 relative flex flex-col justify-between border border-zinc-700/40 ${
+      className={`group bg-transparent rounded-none overflow-hidden cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2 transition-all duration-200 relative flex flex-col justify-between border border-brand-border ${
         selectMode && selected
           ? "ring-2 ring-brand-accent/50 bg-brand-accent/[0.04] border-brand-accent"
           : ""

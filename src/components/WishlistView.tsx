@@ -87,11 +87,19 @@ export const WishlistView: React.FC = () => {
     };
   }, [query]);
 
-  const inWishlist = (igdbId: number | null | undefined) =>
-    Boolean(igdbId && wishlist.some((w) => w.igdb_id === igdbId));
+  // Manual entries have no IGDB id — fall back to a case-insensitive title
+  // match so they still dedupe instead of silently doubling up.
+  const inWishlist = (igdbId: number | null | undefined, title?: string) =>
+    Boolean(
+      (igdbId && wishlist.some((w) => w.igdb_id === igdbId)) ||
+        (title && wishlist.some((w) => w.title.trim().toLowerCase() === title.trim().toLowerCase()))
+    );
 
-  const inLibrary = (igdbId: number | null | undefined) =>
-    Boolean(igdbId && games.some((g) => g.igdb_id === igdbId));
+  const inLibrary = (igdbId: number | null | undefined, title?: string) =>
+    Boolean(
+      (igdbId && games.some((g) => g.igdb_id === igdbId)) ||
+        (title && games.some((g) => g.title.trim().toLowerCase() === title.trim().toLowerCase()))
+    );
 
   const handleAdd = async (game: IGDBGame) => {
     const ok = await addToWishlist(game);
@@ -249,8 +257,8 @@ export const WishlistView: React.FC = () => {
                 <WishlistSearchCard
                   key={game.igdb_id}
                   game={game}
-                  alreadyWishlisted={inWishlist(game.igdb_id)}
-                  alreadyInLibrary={inLibrary(game.igdb_id)}
+                  alreadyWishlisted={inWishlist(game.igdb_id, game.title)}
+                  alreadyInLibrary={inLibrary(game.igdb_id, game.title)}
                   showRating={customizations.showRatingBadge}
                   onAdd={handleAdd}
                 />
@@ -272,7 +280,7 @@ export const WishlistView: React.FC = () => {
               <button
                 type="button"
                 onClick={selectedIds.size === wishlist.length && wishlist.length > 0 ? deselectAll : selectAll}
-                className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-400 hover:text-white underline cursor-pointer"
+                className="text-xs font-sans font-bold uppercase tracking-wider text-zinc-400 hover:text-white underline cursor-pointer"
               >
                 {selectedIds.size === wishlist.length && wishlist.length > 0 ? "Deselect All" : `Select All (${wishlist.length})`}
               </button>
@@ -360,7 +368,7 @@ export const WishlistView: React.FC = () => {
               <WishlistItemCard
                 key={item.id}
                 item={item}
-                alreadyInLibrary={inLibrary(item.igdb_id)}
+                alreadyInLibrary={inLibrary(item.igdb_id, item.title)}
                 owning={owningId === item.id}
                 showRating={customizations.showRatingBadge}
                 onOwn={() => handleOwn(item)}
@@ -457,7 +465,17 @@ const WishlistItemCard = React.memo<WishlistItemCardProps>(({
   return (
     <div
       onClick={handleCardClick}
-      className={`group bg-zinc-950 border rounded-none overflow-hidden transition-all duration-200 flex flex-col justify-between ${
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleCardClick();
+        }
+      }}
+      tabIndex={0}
+      role="button"
+      aria-pressed={selectMode ? selected : undefined}
+      aria-label={`${selectMode ? (selected ? "Deselect " : "Select ") : ""}${item.title}`}
+      className={`group bg-zinc-950 border rounded-none overflow-hidden transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2 ${
         selectMode
           ? (selected
               ? "border-brand-accent ring-2 ring-brand-accent/50 bg-brand-accent/[0.04] cursor-pointer"
@@ -492,9 +510,11 @@ const WishlistItemCard = React.memo<WishlistItemCardProps>(({
           </div>
         )}
 
-        {/* Hover actions overlay — only in normal non-select mode */}
+        {/* Hover actions overlay — only in normal non-select mode.
+            Always visible on touch devices (no hover) and to keyboard focus,
+            invisible + untabbable otherwise. */}
         {!selectMode && (
-          <div className="absolute inset-0 bg-black/65 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center gap-2.5 p-4">
+          <div className="absolute inset-0 bg-black/65 opacity-0 invisible group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible [@media(hover:none)]:opacity-100 [@media(hover:none)]:visible transition-all duration-200 flex flex-col items-center justify-center gap-2.5 p-4">
             {alreadyInLibrary ? (
               <div className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-500/10 border border-emerald-500/35 text-emerald-400 rounded-none text-[11px] font-black uppercase tracking-widest select-none">
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />

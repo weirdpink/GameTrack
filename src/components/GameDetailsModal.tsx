@@ -319,7 +319,11 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
   // Using imported getStatusBadgeColor from constants
 
-  const modalRef = useModalA11y(Boolean(selectedGame));
+  // Outer trap pauses while the nested Change Poster dialog is open, which
+  // gets its own trap — Tab then cycles the inner dialog instead of the
+  // background form. Focus returns to the Custom Poster trigger on close.
+  const modalRef = useModalA11y(Boolean(selectedGame) && !posterModalOpen);
+  const posterModalRef = useModalA11y(posterModalOpen);
 
   // Set when the user presses inside the panel; a subsequent click landing on
   // the backdrop after a drag-select is then ignored (see handleBackdropClick).
@@ -418,7 +422,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               {/* Poster actions — custom posters can only be set/reset while
                   editing metadata (hidden entirely on the read-only view) */}
               {isEditing && (
-                <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2 pointer-events-none">
+                <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px] opacity-0 invisible group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible transition-all duration-200 flex items-center justify-center gap-2 pointer-events-none">
                   <button
                     type="button"
                     title="Set a custom poster (image URL or device upload)"
@@ -490,9 +494,9 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     href={`https://store.steampowered.com/app/${selectedGame.steam_appid}/`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-2 py-0.5 rounded-none text-[11px] font-mono font-black bg-zinc-900 border border-brand-border text-brand-accent hover:border-brand-accent hover:text-white transition-colors"
+                    className="px-2 py-0.5 rounded-none text-[11px] font-sans font-black bg-zinc-900 border border-brand-border text-brand-accent hover:border-brand-accent hover:text-white transition-colors"
                   >
-                    STEAM #{selectedGame.steam_appid}
+                    VIEW ON STEAM
                   </a>
                 )}
               </div>
@@ -701,7 +705,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       setPersonalRating("");
                       setRatingHover(null);
                     }}
-                    className={`aspect-square w-full text-[11px] font-mono font-black border transition-colors duration-100 cursor-pointer flex items-center justify-center ${
+                    className={`aspect-square w-full text-[11px] font-sans font-black border transition-colors duration-100 cursor-pointer flex items-center justify-center ${
                       ratingValue > 0
                         ? "bg-zinc-950 border-brand-border text-white hover:border-red-500/60 hover:text-red-400"
                         : "bg-zinc-950 border-brand-border text-brand-muted hover:text-white"
@@ -720,7 +724,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                         onClick={() => setPersonalRating(ratingValue === n ? "" : String(n))}
                         onMouseEnter={() => setRatingHover(n)}
                         onMouseLeave={() => setRatingHover(null)}
-                        className={`aspect-square w-full text-[11px] font-mono font-black border transition-colors duration-100 cursor-pointer select-none ${
+                        className={`aspect-square w-full text-[11px] font-sans font-black border transition-colors duration-100 cursor-pointer select-none ${
                           active
                             ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
                             : "bg-zinc-950 border-brand-border text-brand-muted hover:border-brand-accent/60 hover:text-white"
@@ -880,6 +884,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
           onClick={(e) => { if (e.target === e.currentTarget) closePosterModal(); }}
         >
           <motion.div
+            ref={posterModalRef}
             initial={{ scale: 0.96, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.96, opacity: 0 }}

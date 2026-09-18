@@ -141,7 +141,7 @@ type WishlistItem = z.infer<typeof WishlistSchema> & { id: number; date_added: n
 
 
 const OrderSchema = z.object({ ids: z.array(z.number().int().positive()) });
-const BulkDeleteSchema = z.object({ ids: z.array(z.number().int().positive()).min(1) });
+const BulkDeleteSchema = z.object({ ids: z.array(z.number().int().positive()).min(1).max(2000) });
 const SearchQuerySchema = z.object({
   q: z.string().max(200).default(""),
   page: z.string().regex(/^\d+$/).default("1")
@@ -173,10 +173,11 @@ const stmts = {
   insertGame: db.prepare(`
     INSERT INTO games (title, year, igdb_id, genres, synopsis, poster_url, critic_score,
       owned_platforms, status, playtime, personal_rating, date_added, date_completed,
-      created_at, updated_at, hide_playtime, steam_appid, custom_order)
+      created_at, updated_at, hide_playtime, steam_appid, custom_order, metadata_custom)
     VALUES (@title, @year, @igdb_id, @genres, @synopsis, @poster_url, @critic_score,
       @owned_platforms, @status, @playtime, @personal_rating, @date_added,
-      @date_completed, @created_at, @updated_at, @hide_playtime, @steam_appid, @custom_order)
+      @date_completed, @created_at, @updated_at, @hide_playtime, @steam_appid, @custom_order,
+      @metadata_custom)
   `),
   updateGame: db.prepare(`
     UPDATE games SET title = @title, year = @year, igdb_id = @igdb_id, genres = @genres,
@@ -249,7 +250,7 @@ apiRouter.get("/export", (_req: Request, res: Response) => {
 // backup, so the download stays consistent even while a sync is writing.
 apiRouter.get("/export/db", async (_req: Request, res: Response) => {
   const stamp = new Date().toISOString().slice(0, 10);
-  const tmpPath = path.join(DATA_DIR, `.backup-${process.pid}-${Date.now()}.db`);
+  const tmpPath = path.join(DATA_DIR, `.backup-${process.pid}-${Date.now()}-${crypto.randomUUID()}.db`);
   try {
     await db.backup(tmpPath);
     // Read the snapshot into memory and delete the temp file up front — the
@@ -296,6 +297,7 @@ apiRouter.post("/games", (req: Request, res: Response) => {
       hide_playtime: g.hide_playtime ?? 0,
       steam_appid: g.steam_appid ?? null,
       custom_order: g.custom_order ?? null,
+      metadata_custom: g.metadata_custom ?? 0,
     });
     const inserted = parseGame(stmts.getGameById.get(result.lastInsertRowid));
     res.status(201).json(inserted);
@@ -317,6 +319,7 @@ apiRouter.put("/games/order", (req: Request, res: Response) => {
     if (!parsed.success) return res.status(400).json({ error: "Invalid order payload", details: parsed.error.flatten().fieldErrors });
     const { ids } = parsed.data;
     if (ids.length === 0 || ids.length > 5000) return res.status(400).json({ error: "Invalid game id list length" });
+    if (new Set(ids).size !== ids.length) return res.status(400).json({ error: "Order payload contains duplicate game ids" });
 
     const total = (stmts.getAllGames.all() as unknown[]).length;
     if (ids.length !== total) {
@@ -635,6 +638,7 @@ apiRouter.post("/import", (req: Request, res: Response) => {
           hide_playtime: data.hide_playtime ?? 0,
           steam_appid: data.steam_appid ?? null,
           custom_order: null,
+          metadata_custom: data.metadata_custom ?? 0,
         });
         imported++;
       }
@@ -968,6 +972,7 @@ export async function runSteamSyncInternal(): Promise<{
         hide_playtime: 0,
         steam_appid: game.steam_appid,
         custom_order: null,
+        metadata_custom: 0,
       });
       imported++;
     });
@@ -1122,7 +1127,7 @@ apiRouter.get("/discover/search", async (req: Request, res: Response) => {
     const qStr = q.toString().trim().replace(/[\\"\r\n;]/g, "").slice(0, 200);
     if (!qStr) return res.json([]);
 
-    const pageNum = Math.max(1, parseInt(page.toString()) || 1);
+    const pageNum = Math.min(100, Math.max(1, parseInt(page.toString()) || 1));
 
     // Note: IGDB Apicalypse does NOT support 'where' filters alongside 'search' queries (it returns 0 results).
     // So we fetch 100 entries and do clean filtering in JS.
@@ -1190,7 +1195,7 @@ apiRouter.get("/discover/trending", async (req: Request, res: Response) => {
     const parsed = TrendingQuerySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
     const { page, limit } = parsed.data;
-    const pageNum = Math.max(1, parseInt(page.toString()) || 1);
+    const pageNum = Math.min(100, Math.max(1, parseInt(page.toString()) || 1));
     const pageSize = Math.min(30, Math.max(1, parseInt(limit.toString()) || 15));
     const offset = (pageNum - 1) * pageSize;
 
@@ -1340,6 +1345,7 @@ apiRouter.post("/wishlist/:id/own", (req: Request, res: Response) => {
         hide_playtime: 0,
         steam_appid: null,
         custom_order: null,
+        metadata_custom: 0,
       });
       stmts.deleteWishlistItem.run(itemId);
       return Number(info.lastInsertRowid);

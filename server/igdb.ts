@@ -149,6 +149,13 @@ function isRetryable(status: number | undefined): boolean {
   return status === 429 || status >= 500;
 }
 
+/** Transport-level failures (undici surfaces these as TypeError) are always safe to retry. */
+function isNetworkError(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|network/i.test(msg);
+}
+
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -216,6 +223,15 @@ export async function fetchFromIgdb(endpoint: string, query: string): Promise<un
         await sleep(RETRY_BASE_DELAY_MS * 2 ** attempt);
         continue;
       }
+      // DNS resets, refused connections and other transport failures never
+      // reach the status-based retry path above — retry them here with the
+      // same backoff. Deliberate API errors (4xx text, auth failures) are not
+      // network errors, so they still throw immediately.
+      if (attempt < MAX_RETRIES - 1 && isNetworkError(err)) {
+        lastError = err;
+        await sleep(RETRY_BASE_DELAY_MS * 2 ** attempt);
+        continue;
+      }
       throw err;
     } finally {
       clearTimeout(timeoutId);
@@ -231,6 +247,11 @@ export async function fetchFromIgdb(endpoint: string, query: string): Promise<un
 // browser refreshes / tab switches don't multiply upstream cost.
 const discoveryCache = new Map<string, { at: number; data: unknown }>();
 const DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
+// Bound memory in a long-lived process: every distinct search string, page
+// and offset is its own key, and expired entries are otherwise only dropped
+// when re-requested. Evict the oldest insertion when over budget (Map keeps
+// insertion order, so the first key is the oldest).
+const DISCOVERY_CACHE_MAX_ENTRIES = 500;
 let curatedListsCache: { at: number; data: { topThisMonth: IgdbMappedGame[]; bestAllTime: IgdbMappedGame[]; newReleases: IgdbMappedGame[]; mostHyped: IgdbMappedGame[] } } | null = null;
 
 /**
@@ -245,6 +266,10 @@ export async function cachedFetchFromIgdb(endpoint: string, query: string, ttlMs
   }
   if (hit) discoveryCache.delete(cacheKey); // expired — free the entry, don't accumulate
   const data = await fetchFromIgdb(endpoint, query);
+  if (discoveryCache.size >= DISCOVERY_CACHE_MAX_ENTRIES) {
+    const oldest = discoveryCache.keys().next();
+    if (!oldest.done) discoveryCache.delete(oldest.value);
+  }
   discoveryCache.set(cacheKey, { at: Date.now(), data });
   return data;
 }
@@ -299,8 +324,9 @@ export function upgradeIgdbPosterUrl(url: string | null | undefined): string | n
  * Maps an IGDB raw game object to our application's normalized format.
  */
 export function mapIgdbGame(item: IgdbRawGame): IgdbMappedGame {
+  // UTC: server-local timezones shift the year for releases near Jan 1.
   const year = item.first_release_date
-    ? new Date(item.first_release_date * 1000).getFullYear()
+    ? new Date(item.first_release_date * 1000).getUTCFullYear()
     : null;
 
   const genres = Array.isArray(item.genres)

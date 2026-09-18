@@ -25,9 +25,12 @@ export function useModalA11y(open: boolean) {
         : [];
 
     // Move focus into the dialog (first focusable, or the panel itself so
-    // screen readers land on it).
-    const first = getFocusables()[0] ?? panel;
-    first?.focus();
+    // screen readers land on it) — unless focus is already inside, e.g. when
+    // a nested dialog closes and returns focus to this panel's trigger.
+    if (!panel?.contains(document.activeElement)) {
+      const first = getFocusables()[0] ?? panel;
+      first?.focus();
+    }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;

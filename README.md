@@ -350,7 +350,7 @@ left without an IGDB id rather than being linked to a different game.
 
 ### Docker
 
-A `Dockerfile` is included for containerized deployments. Mount a volume at the data directory (default `./data`, or whatever `GAMETRACK_DATA_DIR` points to) so your registry persists.
+There is no `Dockerfile` in the repo yet. For containerized deployments, build from `node:20+`, run `npm ci && npm run build`, start with `npm run start`, and mount a volume at the data directory (default `./data`, or whatever `GAMETRACK_DATA_DIR` points to) so your registry persists. Set `API_TOKEN` when binding to a non-loopback host.
 
 ---
 
@@ -416,7 +416,7 @@ gametrack/
 - **Rate limiting** — API (200/min), discovery (20/min), uploads (10/min), and Steam sync (2/min).
 - **No secrets to the client** — IGDB client secret stays server-side; the Steam key is stored but never returned by any API.
 - **Poster upload validation** — uploaded files are checked against real image magic bytes, so spoofed "image/png" payloads are rejected.
-- **Optional bearer token** — set `API_TOKEN` to require `Authorization: Bearer <token>` on every API call for multi-user/remote setups.
+- **Optional bearer token** — set `API_TOKEN` to require `Authorization: Bearer <token>` on every API call for multi-user/remote setups. The web client sends it automatically when configured via the `VITE_API_TOKEN` build arg or a `gametrack_api_token` localStorage entry (set once in the browser console on the deployed host: `localStorage.setItem("gametrack_api_token", "<token>")`).
 - **Cache discipline** — all API responses carry `no-store` headers; hashed assets get long immutable caches.
 
 ---

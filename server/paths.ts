@@ -29,7 +29,13 @@ export const DIST_DIR = path.join(ROOT_DIR, "dist");
 export function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
-  } else {
+    return;
+  }
+  // Best-effort on existing dirs: operators and mounted volumes may manage
+  // permissions themselves, and a denied chmod must never crash startup.
+  try {
     fs.chmodSync(DATA_DIR, 0o700);
+  } catch (err) {
+    console.warn("Could not set data directory permissions:", err instanceof Error ? err.message : err);
   }
 }
