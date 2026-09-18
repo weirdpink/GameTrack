@@ -812,8 +812,8 @@ apiRouter.put("/settings/platforms", (req: Request, res: Response) => {
 let syncInProgress = false;
 
 /**
- * Core Steam sync logic — reusable from both the HTTP route and the
- * background scheduler. Returns a result summary or throws on failure.
+ * Core Steam sync logic behind the manual sync HTTP route.
+ * Returns a result summary or throws on failure.
  */
 export async function runSteamSyncInternal(): Promise<{
   ok: boolean;

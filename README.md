@@ -226,7 +226,6 @@ All routes live under `/api` and return JSON. State-changing requests require a 
 | Method | Route | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/health` | DB heartbeat check |
-| `GET` | `/api/events` | SSE stream (background Steam auto-sync notifications) |
 | `GET` | `/api/games` | Full library, ordered by date added |
 | `POST` | `/api/games` | Add a title manually (201, 409 on duplicates) |
 | `POST` | `/api/games/bulk-delete` | Batch delete games (payload: `{ ids: number[] }`) |

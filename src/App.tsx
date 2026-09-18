@@ -25,7 +25,6 @@ export default function App() {
     fetchTrending, fetchDiscoverLists,
     steamSettings, setSettingsOpen, fetchSteamSettings,
     fetchWishlist, fetchCustomPlatforms,
-    showToast,
     loadingGames,
   } = useGameTrackStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -48,39 +47,6 @@ export default function App() {
       mainRef.current.scrollTo({ top: 0, behavior: "instant" });
     }
   }, [activeTab]);
-
-  // Live Steam sync notifications pushed by the server (auto-sync runs on a
-  // 5-minute schedule; EventSource auto-reconnects after interruptions).
-  useEffect(() => {
-    const es = new EventSource("/api/events");
-    es.addEventListener("steam-sync", (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.status === "started") {
-          showToast("Steam auto-sync in progress", "info", "Pulling library from Steam…");
-        } else if (data.status === "complete") {
-          showToast(
-            "Steam auto-sync complete",
-            "success",
-            `${data.imported} imported · ${data.adopted} adopted · ${data.updated} updated`
-          );
-          if (data.imported || data.adopted || data.updated) {
-            fetchGames(true);
-            fetchAnalytics();
-          }
-        } else if (data.status === "skipped") {
-          if (data.reason && !data.reason.includes("not connected") && !data.reason.includes("already running")) {
-            showToast("Auto-sync skipped", "info");
-          }
-        } else if (data.status === "failed") {
-          showToast("Auto-sync failed", "error");
-        }
-      } catch {
-        /* ignore malformed frames */
-      }
-    });
-    return () => es.close();
-  }, [showToast, fetchGames, fetchAnalytics]);
 
   // Preload everything once at boot — games, Steam identity, analytics,
   // wishlist and custom platforms — so every tab is instant afterwards.

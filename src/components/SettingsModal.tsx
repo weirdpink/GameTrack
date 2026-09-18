@@ -195,11 +195,36 @@ export const SettingsModal: React.FC = React.memo(() => {
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-7 overscroll-contain">
               
-              {/* 1. Steam Identity */}
+              {/* 1. Steam */}
               <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Steam Identity</h4>
-                <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-3">
-                  {steamSettings?.steamId ? (
+                <div className="flex items-center gap-2">
+                  <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Steam</h4>
+                  <span className="relative inline-flex group/info">
+                    <button
+                      type="button"
+                      aria-label="About library sync"
+                      aria-describedby="steam-sync-info"
+                      className="w-4 h-4 flex items-center justify-center rounded-full border border-brand-border text-brand-muted hover:text-brand-accent hover:border-brand-accent/60 transition-colors cursor-help"
+                    >
+                      <Info className="w-2.5 h-2.5" />
+                    </button>
+                    <span
+                      role="tooltip"
+                      id="steam-sync-info"
+                      className="absolute left-5 top-1/2 -translate-y-1/2 z-20 hidden group-hover/info:block group-focus-within/info:block w-56 p-2.5 bg-zinc-950 border border-brand-border text-[11px] text-zinc-400 font-mono leading-relaxed shadow-xl pointer-events-none"
+                    >
+                      Link your Steam account, then sync to import your owned games — titles, cover art, genres and playtime. Non-Steam games stay manual.
+                    </span>
+                  </span>
+                  {steamSettings?.keySet && steamSettings?.steamId && !relinkMode && (
+                    <span className="ml-auto inline-flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 text-[9px] font-sans font-black uppercase tracking-widest">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-[pulse_2s_ease-in-out_infinite]" />
+                      Connected
+                    </span>
+                  )}
+                </div>
+                <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
+                  {steamSettings?.keySet && steamSettings?.steamId && !relinkMode ? (
                     <>
                       <div className="flex items-center gap-3.5">
                         <div className="shrink-0 w-12 h-12 bg-zinc-900 border border-brand-border flex items-center justify-center overflow-hidden">
@@ -214,10 +239,9 @@ export const SettingsModal: React.FC = React.memo(() => {
                             {steamSettings.steamName || "Steam account"}
                           </p>
                           <p className="text-[11px] font-mono text-brand-muted uppercase tracking-wider mt-0.5 truncate">
-                            ID64 {steamSettings.steamId}
+                            Last sync: {formatLastSync(steamSettings.lastSync)}
                           </p>
                         </div>
-                        <span className="shrink-0 ml-auto w-2 h-2 bg-emerald-500 animate-[pulse_2s_ease-in-out_infinite]" title="Connected" />
                       </div>
                       <a
                         // Never render the raw stored profile string as a link —
@@ -232,56 +256,6 @@ export const SettingsModal: React.FC = React.memo(() => {
                         <ExternalLink className="w-3 h-3" />
                         View Steam Profile
                       </a>
-                    </>
-                  ) : (
-                    <p className="text-[11px] font-mono text-brand-muted uppercase tracking-wider leading-relaxed">
-                      // No Steam account linked yet
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* 2. Steam Link */}
-              <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Steam Link</h4>
-                <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Library Auto-Sync</p>
-                    <span className="relative inline-flex group/info">
-                      <button
-                        type="button"
-                        aria-label="About library auto-sync"
-                        aria-describedby="steam-sync-info"
-                        className="w-4 h-4 flex items-center justify-center rounded-full border border-brand-border text-brand-muted hover:text-brand-accent hover:border-brand-accent/60 transition-colors cursor-help"
-                      >
-                        <Info className="w-2.5 h-2.5" />
-                      </button>
-                      <span
-                        role="tooltip"
-                        id="steam-sync-info"
-                        className="absolute left-5 top-1/2 -translate-y-1/2 z-20 hidden group-hover/info:block group-focus-within/info:block w-56 p-2.5 bg-zinc-950 border border-brand-border text-[11px] text-zinc-400 font-mono leading-relaxed shadow-xl pointer-events-none"
-                      >
-                        Link your Steam account to import your owned games automatically — titles, cover art, genres and playtime. Non-Steam games stay manual.
-                      </span>
-                    </span>
-                  </div>
-
-                  {steamSettings?.keySet && steamSettings?.steamId && !relinkMode ? (
-                    <>
-                      <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-zinc-900 border border-brand-border">
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-mono text-white uppercase font-black tracking-wider truncate">
-                            {steamSettings.steamName || "Steam account"}
-                          </p>
-                          <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider mt-0.5 truncate">
-                            {steamSettings.profile}
-                          </p>
-                          <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider mt-0.5">
-                            Last sync: {formatLastSync(steamSettings.lastSync)}
-                          </p>
-                        </div>
-                        <span className="shrink-0 w-2 h-2 bg-emerald-500 animate-[pulse_2s_ease-in-out_infinite]" title="Connected" />
-                      </div>
 
                       <div className="grid grid-cols-2 gap-2">
                         <button
@@ -308,6 +282,26 @@ export const SettingsModal: React.FC = React.memo(() => {
                     </>
                   ) : (
                     <>
+                      {steamSettings?.steamId && !relinkMode ? (
+                        <div className="flex items-center gap-3.5">
+                          <div className="shrink-0 w-12 h-12 bg-zinc-900 border border-brand-border flex items-center justify-center overflow-hidden">
+                            {steamSettings.avatarUrl ? (
+                              <img src={steamSettings.avatarUrl} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <Joystick className="w-5 h-5 text-brand-accent" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-mono font-black uppercase tracking-widest text-white truncate">
+                              {steamSettings.steamName || "Steam account"}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] font-mono text-brand-muted uppercase tracking-wider leading-relaxed">
+                          // No Steam account linked yet
+                        </p>
+                      )}
                       <div className="space-y-1">
                         <label htmlFor="settings-steam-profile" className="block text-[8px] font-mono uppercase tracking-widest text-brand-muted font-bold">Steam Profile URL or ID64</label>
                         <input
