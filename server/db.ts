@@ -46,7 +46,8 @@ db.exec(`
     updated_at INTEGER NOT NULL,
     hide_playtime INTEGER DEFAULT 0 CHECK (hide_playtime IN (0, 1)),
     steam_appid INTEGER,
-    custom_order INTEGER
+    custom_order INTEGER,
+    metadata_custom INTEGER NOT NULL DEFAULT 0 CHECK (metadata_custom IN (0, 1))
   );
 
   CREATE TABLE IF NOT EXISTS settings (
@@ -65,7 +66,7 @@ db.exec(`
 // only after a block completes successfully; a failed migration fails loudly
 // at startup instead of being silently re-run every boot.
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 function migrateTo(target: number) {
   const current = Number(db.pragma("user_version", { simple: true })) || 0;
@@ -243,6 +244,20 @@ function runMigration(version: number) {
       );
     }
   }
+
+  if (version === 10) {
+    // Track whether a row's metadata (title/year/genres/synopsis/score/poster)
+    // was customized by the user. Steam sync consults this flag so manual
+    // metadata edits survive every future sync instead of only surviving when
+    // the user happened to also rate the game or upload a poster file.
+    const cols = db.prepare("PRAGMA table_info(games)").all() as any[];
+    if (!cols.some((col) => col.name === "metadata_custom")) {
+      db.exec("ALTER TABLE games ADD COLUMN metadata_custom INTEGER NOT NULL DEFAULT 0 CHECK (metadata_custom IN (0, 1))");
+    }
+    // One-time backfill: rows that already carry a custom uploaded poster were
+    // by definition customized by the user.
+    db.exec("UPDATE games SET metadata_custom = 1 WHERE poster_url LIKE '/posters/%'");
+  }
 }
 
 // ── RAWG remnant cleanup ────────────────────────────────────────────
@@ -314,8 +329,9 @@ function normalizeRawgRemnants() {
  * details modal's "Sync Poster" action.
  */
 export function normalizePosterPolicy(): number {
+  // Custom uploads ("/posters/...") are user content — never rewrite them.
   const staleGames = db
-    .prepare("SELECT id, steam_appid FROM games WHERE poster_url = '' OR poster_url LIKE '%rawg.io%'")
+    .prepare("SELECT id, steam_appid FROM games WHERE (poster_url = '' OR poster_url LIKE '%rawg.io%') AND poster_url NOT LIKE '/posters/%'")
     .all() as { id: number; steam_appid: number | null }[];
   const staleWishlist = db
     .prepare("SELECT id FROM wishlist WHERE poster_url = '' OR poster_url LIKE '%rawg.io%'")

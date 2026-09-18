@@ -2,12 +2,13 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import {
-  Search, SlidersHorizontal, Plus, Clock, RefreshCw, ChevronDown, X, Trophy, GripVertical, Heart, CheckSquare, Check, Trash2, Loader2
+  Search, SlidersHorizontal, Plus, Clock, RefreshCw, ChevronDown, X, Trophy, GripVertical, Heart, CheckSquare, Check, Trash2, Loader2,
+  Bookmark, Play, Repeat
 } from "lucide-react";
 import { Game } from "../types";
 import { formatPlaytimePrecise } from "../utils/time";
 
-import { STATUSES, getStatusBadgeColor, getStatusBorderColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms, libraryGridClass } from "../constants";
+import { STATUSES, getStatusLabel, getStatusMarkerColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass } from "../constants";
 import { PosterImage } from "./PosterImage";
 
 export const LibraryView: React.FC = () => {
@@ -614,6 +615,14 @@ export const LibraryView: React.FC = () => {
   );
 };
 
+/** Per-status corner badge icons — mirrors the completion trophy style. */
+const STATUS_MARKER_ICONS: Record<Game["status"], typeof Trophy> = {
+  backlog: Bookmark,
+  playing: Play,
+  completed: Trophy,
+  endless: Repeat,
+};
+
 interface LibraryGameCardProps {
   game: Game;
   onClick: (game: Game) => void;
@@ -659,14 +668,14 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
       onDragOver={reorderable ? (e) => { e.preventDefault(); onDragOverCard?.(game); } : undefined}
       onDragEnd={reorderable ? (e) => { e.preventDefault(); onDragEnd?.(); } : undefined}
       title={reorderable ? "Drag to reorder" : undefined}
-      className={`group bg-transparent rounded-none overflow-hidden cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2 transition-all duration-200 relative flex flex-col justify-between ${
+      className={`group bg-transparent rounded-none overflow-hidden cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2 transition-all duration-200 relative flex flex-col justify-between border border-zinc-700/40 ${
         selectMode && selected
-          ? "border-brand-accent ring-2 ring-brand-accent/50 bg-brand-accent/[0.04]"
-          : getStatusBorderColor(game.status)
+          ? "ring-2 ring-brand-accent/50 bg-brand-accent/[0.04] border-brand-accent"
+          : ""
       } ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${isDragging ? "opacity-25" : ""}`}
     >
       {/* Game Poster Container */}
-      <div className="aspect-[2/3] relative overflow-hidden bg-zinc-950 shrink-0 border-b border-brand-border">
+      <div className="aspect-[2/3] relative overflow-hidden bg-zinc-950 shrink-0">
         {/* Selection Checkbox Badge */}
         {selectMode && (
           <div className="absolute top-2.5 left-2.5 z-20">
@@ -682,28 +691,26 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
           </div>
         )}
 
-        {!selectMode && game.status === "completed" && (
-          <div className="absolute top-2.5 left-2.5 bg-brand-accent text-zinc-950 p-1.5 z-10 shadow-lg border border-brand-accent">
-            <Trophy className="w-3.5 h-3.5 text-zinc-950 stroke-[2.5]" />
-          </div>
-        )}
+        {/* Status badge — small square icon badge at the top-left corner;
+            every status matches the completion trophy badge style */}
+        {!selectMode && (() => {
+          const StatusIcon = STATUS_MARKER_ICONS[game.status] ?? Bookmark;
+          return (
+            <div
+              role="img"
+              aria-label={`Status: ${getStatusLabel(game.status)}`}
+              title={getStatusLabel(game.status)}
+              className={`absolute top-2.5 left-2.5 p-1.5 z-10 shadow-lg border ${getStatusMarkerColor(game.status)}`}
+            >
+              <StatusIcon className="w-3.5 h-3.5 stroke-[2.5]" />
+            </div>
+          );
+        })()}
         <PosterImage
           src={game.poster_url}
           alt={game.title}
           className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200 transform-gpu will-change-transform"
         />
-        
-        {/* Overlay details - only shown on hover-supporting devices */}
-        {!selectMode && (
-          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-end p-4 pointer-events-none">
-            <p className="text-[11px] text-brand-accent font-mono font-bold leading-normal uppercase">
-              {(game.genres || []).slice(0, 2).join(" // ")}
-            </p>
-            <p className="text-zinc-200 text-[11px] line-clamp-3 mt-1 leading-relaxed font-sans">
-              {game.synopsis || "No details provided."}
-            </p>
-          </div>
-        )}
 
         {/* Score Floating Badge */}
         {showRating && game.critic_score != null && (
@@ -719,35 +726,25 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
           <h4 className={`font-bold text-sm transition-colors line-clamp-1 uppercase tracking-tight ${game.status === "completed" ? "text-brand-accent" : "text-white group-hover:text-brand-accent"}`}>
             {game.title}
           </h4>
-          <p className="text-[11px] text-brand-muted mt-0.5 font-mono uppercase font-bold">
-            {game.year ? `${game.year} // ` : ""}{(game.genres || [])[0] || "General"}
-          </p>
-        </div>
-
-        <div className="flex items-center justify-between gap-2 border-t border-brand-border mt-3 pt-2.5">
-          {game.status === "completed" ? (
-            <span className="px-2 py-0.5 text-[11px] font-black border uppercase tracking-widest bg-brand-accent/10 text-brand-accent border-brand-accent/30">
-              {getStatusLabel(game.status)}
-            </span>
-          ) : (
-            <span className={`px-2 py-0.5 text-[11px] font-black border uppercase tracking-widest ${getStatusBadgeColor(game.status)}`}>
-              {getStatusLabel(game.status)}
-            </span>
-          )}
-          
-          {showPlaytime && (
-            game.hide_playtime === 1 ? (
-              <div className="flex items-center gap-1 font-mono text-[11px] font-black text-zinc-600">
-                <Clock className="w-3 h-3 text-zinc-600" />
-                <span>—</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1 font-mono text-[11px] font-black text-zinc-400">
-                <Clock className="w-3 h-3 text-brand-accent" />
-                <span>{formatPlaytimePrecise(game.playtime)}</span>
-              </div>
-            )
-          )}
+          {/* Launch year on the left, time played on the right */}
+          <div className="border-t border-brand-border mt-2 pt-2 flex items-center justify-between gap-2">
+            <p className="text-[11px] text-brand-muted font-mono uppercase font-bold">
+              {game.year ?? "—"}
+            </p>
+            {showPlaytime && (
+              game.hide_playtime === 1 ? (
+                <div className="flex items-center gap-1 font-mono text-[11px] font-black text-zinc-600">
+                  <Clock className="w-3 h-3 text-zinc-600" />
+                  <span>—</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 font-mono text-[11px] font-black text-zinc-400">
+                  <Clock className="w-3 h-3 text-brand-accent" />
+                  <span>{formatPlaytimePrecise(game.playtime)}</span>
+                </div>
+              )
+            )}
+          </div>
         </div>
       </div>
     </div>

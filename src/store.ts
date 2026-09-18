@@ -69,10 +69,12 @@ async function syncGameField(id: number, igdbId: number, field: "synopsis" | "po
     if (res.ok) {
       const data = await res.json();
       if (data[field]) {
+        // Internal provider refresh — must NOT mark the row as user-customized
+        // (metadata_custom: 0 tells the PUT handler to leave the flag alone).
         const putRes = await fetch(`/api/games/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ [field]: data[field] }),
+          body: JSON.stringify({ [field]: data[field], metadata_custom: 0 }),
         });
         if (!putRes.ok) return null; // don't apply a value the server rejected
         set((state: GameTrackState) => ({
@@ -117,6 +119,8 @@ interface GameTrackState {
   clearCustomOrder: () => Promise<boolean>;
   syncGameSynopsis: (id: number, igdbId: number) => Promise<string | null>;
   syncGamePoster: (id: number, igdbId: number) => Promise<string | null>;
+  resetGamePoster: (id: number) => Promise<string | null>;
+  resetGameMetadata: (id: number) => Promise<Game | null>;
 
   trendingGames: IGDBGame[];
   discoverSearchResults: IGDBGame[];
@@ -157,6 +161,7 @@ interface GameTrackState {
   importLibraryJSON: (jsonData: unknown) => Promise<{ success: boolean; imported?: number; error?: string }>;
   wipeLibrary: () => Promise<boolean>;
   exportLibraryJSON: () => Promise<boolean>;
+  exportDatabase: () => Promise<boolean>;
 
   toasts: ToastItem[];
   showToast: (message: string, type?: "success" | "error" | "info", description?: string, duration?: number) => void;
@@ -533,6 +538,50 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
 
   syncGameSynopsis: (id, igdbId) => syncGameField(id, igdbId, "synopsis", set),
   syncGamePoster: (id, igdbId) => syncGameField(id, igdbId, "poster_url", set),
+
+  // Restore the game's default poster: Steam-owned rows go back to the Steam
+  // CDN artwork, IGDB-linked rows refetch the IGDB cover, anything else is
+  // blanked (the UI renders the curated fallback for empty poster URLs).
+  resetGamePoster: async (id) => {
+    const game = get().games.find((g) => g.id === id) ??
+      (get().selectedGame?.id === id ? get().selectedGame : undefined);
+    let poster: string | null;
+    if (game?.steam_appid != null) {
+      poster = `https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${game.steam_appid}/library_600x900.jpg`;
+    } else if (game?.igdb_id != null) {
+      poster = await get().syncGamePoster(id, game.igdb_id);
+    } else {
+      poster = "";
+    }
+    if (poster === null) return null; // IGDB fetch failed — keep current poster
+    // Steam/blank paths go through updateGame directly; syncGamePoster already
+    // persisted + updated the store for the IGDB path.
+    if (game?.igdb_id == null || game?.steam_appid != null) {
+      const ok = await get().updateGame(id, { poster_url: poster });
+      if (!ok) return null;
+    }
+    return poster;
+  },
+
+  // Restore every metadata field (title/year/genres/synopsis/score/poster) to
+  // the IGDB defaults — Steam rows get the Steam poster back. User data
+  // (status, playtime, rating, platforms) is preserved server-side.
+  resetGameMetadata: async (id) => {
+    try {
+      const res = await fetch(`/api/games/${id}/reset-metadata`, { method: "POST" });
+      if (!res.ok) throw await getApiError(res, "Failed to reset metadata");
+      const data: Game = await res.json();
+      set((state) => ({
+        games: state.games.map((g) => (g.id === id ? data : g)),
+        selectedGame: state.selectedGame?.id === id ? data : state.selectedGame,
+      }));
+      get().showToast("Metadata reset to defaults", "success", data.title);
+      return data;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Failed to reset metadata", "error");
+      return null;
+    }
+  },
 
   // ── Discover (IGDB) ───────────────────────────────────────────
   trendingGames: cachedDiscover?.trendingGames ?? [],
@@ -1014,6 +1063,29 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       return true;
     } catch (err: unknown) {
       get().showToast(getErrorMessage(err) || "Library export failed", "error");
+      return false;
+    }
+  },
+
+  // Download the raw SQLite database file — a byte-exact, consistent snapshot
+  // (server runs a WAL-aware online backup), for full-fidelity backups.
+  exportDatabase: async () => {
+    try {
+      const res = await fetch("/api/export/db");
+      if (!res.ok) throw await getApiError(res, "Database export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gametrack-backup-${new Date().toISOString().slice(0, 10)}.db`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      get().showToast("Database downloaded", "success", "Backup saved to downloads");
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Database export failed", "error");
       return false;
     }
   },

@@ -18,6 +18,7 @@ export interface Game {
   hide_playtime?: number; // 1 to hide playtime display, 0 or undefined to show
   steam_appid?: number | null;
   custom_order?: number | null; // hand-arranged library position; null = unplaced
+  metadata_custom?: number; // 1 when the user edited metadata (title/year/genres/synopsis/score/poster) — Steam sync preserves it
 }
 
 export interface LibrarySummary {

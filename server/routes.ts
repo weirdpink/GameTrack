@@ -5,7 +5,7 @@ import crypto from "crypto";
 import db from "./db";
 import { z } from "zod";
 import { normalizePlatformIds, AVAILABLE_PLATFORMS } from "../src/constants";
-import { POSTERS_DIR } from "./paths";
+import { DATA_DIR, POSTERS_DIR } from "./paths";
 
 import { fetchFromIgdb, mapIgdbGame, fetchCuratedLists, cachedFetchFromIgdb, IgdbAuthError } from "./igdb";
 import {
@@ -16,6 +16,7 @@ import {
   matchSteamToIgdb,
   buildSyncedGame,
   effectiveSteamApiKey,
+  getSteamPosterImage,
   SteamUserError,
   SteamNetworkError,
   mapWithLimit,
@@ -65,6 +66,7 @@ interface GameRow {
   owned_platforms: string; status: string; playtime: number; personal_rating: number | null;
   date_added: number; date_completed: number | null; created_at: number; updated_at: number;
   hide_playtime: number; steam_appid: number | null; custom_order: number | null;
+  metadata_custom: number;
 }
 
 interface WishlistRow {
@@ -114,6 +116,7 @@ const GameSchema = z.object({
   hide_playtime: z.number().min(0).max(1).optional(),
   steam_appid: z.number().int().nullable().optional(),
   custom_order: z.number().int().min(0).nullable().optional(),
+  metadata_custom: z.number().int().min(0).max(1).optional(),
 });
 
 // For PATCH updates — all fields optional except partial must have at least one
@@ -181,7 +184,8 @@ const stmts = {
       owned_platforms = @owned_platforms, status = @status, playtime = @playtime,
       personal_rating = @personal_rating, date_added = @date_added,
       date_completed = @date_completed, hide_playtime = @hide_playtime,
-      updated_at = @updated_at, steam_appid = @steam_appid, custom_order = @custom_order
+      updated_at = @updated_at, steam_appid = @steam_appid, custom_order = @custom_order,
+      metadata_custom = @metadata_custom
     WHERE id = @id
   `),
   deleteGame: db.prepare("DELETE FROM games WHERE id = ?"),
@@ -237,6 +241,35 @@ apiRouter.get("/export", (_req: Request, res: Response) => {
   } catch (err) {
     console.error("GET /api/export error:", err);
     res.status(500).json({ error: "Failed to export library" });
+  }
+});
+
+// GET /api/export/db — raw SQLite database file as a backup. Unlike the JSON
+// export this is a byte-exact snapshot: `db.backup()` runs a WAL-aware online
+// backup, so the download stays consistent even while a sync is writing.
+apiRouter.get("/export/db", async (_req: Request, res: Response) => {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const tmpPath = path.join(DATA_DIR, `.backup-${process.pid}-${Date.now()}.db`);
+  try {
+    await db.backup(tmpPath);
+    res.setHeader("Content-Type", "application/vnd.sqlite3");
+    res.setHeader("Content-Disposition", `attachment; filename="gametrack-backup-${stamp}.db"`);
+    const stream = fs.createReadStream(tmpPath);
+    // The response is fully flushed once the stream closes, so deleting the
+    // temp snapshot synchronously here cannot truncate the download.
+    const cleanup = () => fs.rmSync(tmpPath, { force: true });
+    stream.on("close", cleanup);
+    stream.on("error", (err) => {
+      cleanup();
+      console.error("GET /api/export/db stream error:", err);
+      if (!res.headersSent) res.status(500).json({ error: "Failed to export database" });
+      else res.destroy();
+    });
+    stream.pipe(res);
+  } catch (err) {
+    fs.rmSync(tmpPath, { force: true });
+    console.error("GET /api/export/db error:", err);
+    res.status(500).json({ error: "Failed to export database" });
   }
 });
 
@@ -354,6 +387,21 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
       nextDateCompleted = null; // leaving completed — clear the completion date
     }
 
+    // Any edit to the metadata fields marks the row as user-customized, so the
+    // next Steam sync preserves it instead of reverting it to IGDB defaults.
+    // Status/playtime/rating changes and internal sync writes do not set this.
+    // Internal provider refreshes send metadata_custom: 0 to opt out of the
+    // auto-flag (never cleared automatically — only reset-metadata clears it).
+    const touchesMetadata =
+      sent("title") || sent("year") || sent("genres") || sent("synopsis") ||
+      sent("poster_url") || sent("critic_score");
+    const internalRefresh = sent("metadata_custom") && g.metadata_custom === 0;
+    const nextMetadataCustom = internalRefresh
+      ? existing.metadata_custom
+      : touchesMetadata || g.metadata_custom === 1
+        ? 1
+        : existing.metadata_custom;
+
     stmts.updateGame.run({
       title: g.title ?? existing.title,
       year: g.year !== undefined ? g.year : existing.year,
@@ -371,6 +419,7 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
       hide_playtime: g.hide_playtime !== undefined ? g.hide_playtime : existing.hide_playtime,
       steam_appid: g.steam_appid !== undefined ? g.steam_appid : existing.steam_appid,
       custom_order: g.custom_order !== undefined ? g.custom_order : existing.custom_order,
+      metadata_custom: nextMetadataCustom,
       updated_at: now,
       id: gameId,
     });
@@ -382,6 +431,59 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
     }
     console.error("PUT /api/games/:id error:", err);
     res.status(500).json({ error: "Failed to update game" });
+  }
+});
+
+// POST /api/games/:id/reset-metadata — restore the default IGDB metadata for a
+// game (title/year/genres/synopsis/critic score + poster). Steam-owned rows
+// reset their poster to the Steam CDN artwork; everyone else gets the IGDB
+// cover. User data (status, playtime, rating, platforms, dates) is untouched.
+apiRouter.post("/games/:id/reset-metadata", async (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid game ID" });
+    const gameId = paramParsed.data.id;
+
+    const existing = stmts.getGameById.get(gameId) as GameRow | undefined;
+    if (!existing) return res.status(404).json({ error: "Game not found" });
+    if (existing.igdb_id == null) {
+      return res.status(400).json({ error: "This game has no IGDB link, so there is no default metadata to restore." });
+    }
+
+    const query = `fields name, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug; where id = ${existing.igdb_id};`;
+    const data = await cachedFetchFromIgdb("games", query, 60 * 60 * 1000);
+    if (!Array.isArray(data) || data.length === 0) {
+      return res.status(404).json({ error: "Game not found on IGDB" });
+    }
+    const mapped = mapIgdbGame(data[0]);
+    const poster = existing.steam_appid != null
+      ? getSteamPosterImage(existing.steam_appid)
+      : (mapped.poster_url || "");
+
+    stmts.updateGame.run({
+      title: mapped.title,
+      year: mapped.year,
+      igdb_id: existing.igdb_id,
+      genres: JSON.stringify(mapped.genres),
+      synopsis: mapped.synopsis,
+      poster_url: poster,
+      critic_score: mapped.critic_score,
+      owned_platforms: existing.owned_platforms,
+      status: existing.status,
+      playtime: existing.playtime,
+      personal_rating: existing.personal_rating,
+      date_added: existing.date_added,
+      date_completed: existing.date_completed,
+      hide_playtime: existing.hide_playtime,
+      steam_appid: existing.steam_appid,
+      custom_order: existing.custom_order,
+      metadata_custom: 0,
+      updated_at: Date.now(),
+      id: existing.id,
+    });
+    res.json(parseGame(stmts.getGameById.get(gameId)));
+  } catch (err) {
+    respondIgdbFailure(err, res, "Failed to reset metadata");
   }
 });
 
@@ -806,15 +908,25 @@ export async function runSteamSyncInternal(): Promise<{
     const syncOne = db.transaction((game: any) => {
       const existing = getBySteamAppid.get(game.steam_appid) as any;
       if (existing) {
-        const hasCustomPoster = String(existing.poster_url || "").startsWith("/posters/");
-        const preserve = existing.personal_rating !== null || hasCustomPoster;
+        // A row counts as user-customized when it was explicitly flagged (any
+        // metadata edit via PUT), when the user rated it, or when its poster
+        // differs from the default Steam artwork for that appid (custom upload
+        // or custom URL). Customized rows keep their metadata; everything else
+        // refreshes from IGDB — and always uses the Steam poster, never RAWG's.
+        const existingPoster = String(existing.poster_url || "");
+        const defaultPoster = getSteamPosterImage(game.steam_appid);
+        const hasCustomPoster = existingPoster !== "" && existingPoster !== defaultPoster;
+        const preserve =
+          existing.metadata_custom === 1 ||
+          existing.personal_rating !== null ||
+          hasCustomPoster;
         stmts.updateGame.run({
           title: preserve ? existing.title : game.title,
           year: preserve ? existing.year : (game.year ?? existing.year),
           igdb_id: preserve ? existing.igdb_id : (game.igdb_id ?? existing.igdb_id),
           genres: JSON.stringify(preserve ? safeJsonParse(existing.genres, []) : game.genres),
           synopsis: preserve ? existing.synopsis : game.synopsis,
-          poster_url: preserve ? existing.poster_url : game.poster_url,
+          poster_url: preserve ? existing.poster_url : defaultPoster,
           critic_score: preserve ? existing.critic_score : (game.critic_score ?? existing.critic_score),
           owned_platforms: JSON.stringify(game.owned_platforms),
           status: existing.status,
@@ -825,6 +937,7 @@ export async function runSteamSyncInternal(): Promise<{
           hide_playtime: existing.hide_playtime,
           steam_appid: game.steam_appid,
           custom_order: existing.custom_order,
+          metadata_custom: existing.metadata_custom ?? 0,
           updated_at: Date.now(),
           id: existing.id,
         });

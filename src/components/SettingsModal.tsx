@@ -10,7 +10,7 @@ import { THEMES } from "../themes";
 export const SettingsModal: React.FC = React.memo(() => {
   const { 
     isSettingsOpen, setSettingsOpen,
-    wipeLibrary, showToast, importLibraryJSON, exportLibraryJSON,
+    wipeLibrary, showToast, importLibraryJSON, exportLibraryJSON, exportDatabase,
     steamSettings, fetchSteamSettings, saveSteamSettings, syncSteamLibrary,
     customizations, updateCustomizations,
     customPlatforms, addCustomPlatform, removeCustomPlatform,
@@ -31,6 +31,7 @@ export const SettingsModal: React.FC = React.memo(() => {
   const libraryInputRef = useRef<HTMLInputElement>(null);
   const [importingLibrary, setImportingLibrary] = useState(false);
   const [exportingLibrary, setExportingLibrary] = useState(false);
+  const [exportingDatabase, setExportingDatabase] = useState(false);
 
   const [wipeConfirmInput, setWipeConfirmInput] = useState("");
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
@@ -513,6 +514,20 @@ export const SettingsModal: React.FC = React.memo(() => {
                     >
                       {exportingLibrary ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                       Export Library JSON
+                    </button>
+                    <button
+                      type="button"
+                      title="Download the raw SQLite database file — an exact, full-fidelity snapshot"
+                      onClick={async () => {
+                        setExportingDatabase(true);
+                        await exportDatabase();
+                        setExportingDatabase(false);
+                      }}
+                      disabled={exportingDatabase}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 border border-brand-border hover:border-zinc-700 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
+                    >
+                      {exportingDatabase ? <Loader2 className="w-4 h-4 animate-spin text-brand-accent" /> : <Download className="w-4 h-4 text-brand-accent" />}
+                      Download Database (.db)
                     </button>
                   </div>
 

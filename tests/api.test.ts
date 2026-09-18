@@ -438,6 +438,89 @@ describe("API smoke tests", () => {
     ids.forEach((id) => expect(existingIds.has(id)).toBe(false));
   });
 
+  it("metadata edits set the metadata_custom flag; internal refreshes don't", async () => {
+    // Fresh game starts uncustomized.
+    const created = await request(app)
+      .post("/api/games")
+      .set(WITH_ORIGIN)
+      .send({ title: "Flag Game", status: "backlog", steam_appid: 555001 });
+    expect(created.status).toBe(201);
+    expect(created.body.metadata_custom ?? 0).toBe(0);
+
+    // A status-only change is NOT a metadata edit.
+    const statusOnly = await request(app)
+      .put(`/api/games/${created.body.id}`)
+      .set(WITH_ORIGIN)
+      .send({ status: "playing" });
+    expect(statusOnly.status).toBe(200);
+    expect(statusOnly.body.metadata_custom ?? 0).toBe(0);
+
+    // Editing the title IS a metadata edit.
+    const titled = await request(app)
+      .put(`/api/games/${created.body.id}`)
+      .set(WITH_ORIGIN)
+      .send({ title: "Flag Game (Custom)" });
+    expect(titled.status).toBe(200);
+    expect(titled.body.metadata_custom).toBe(1);
+
+    // A poster URL change is a metadata edit too.
+    const poster = await request(app)
+      .put(`/api/games/${created.body.id}`)
+      .set(WITH_ORIGIN)
+      .send({ poster_url: "https://example.com/custom.jpg" });
+    expect(poster.status).toBe(200);
+    expect(poster.body.metadata_custom).toBe(1);
+
+    // Internal provider refreshes pass metadata_custom: 0 and must NOT flag
+    // the row nor clear an existing flag (0 = "leave as-is" for the flag).
+    const internal = await request(app)
+      .put(`/api/games/${created.body.id}`)
+      .set(WITH_ORIGIN)
+      .send({ synopsis: "provider refresh", metadata_custom: 0 });
+    expect(internal.status).toBe(200);
+    expect(internal.body.metadata_custom).toBe(1);
+    expect(internal.body.synopsis).toBe("provider refresh");
+  });
+
+  it("POST /api/games/:id/reset-metadata validates the game and its IGDB link", async () => {
+    // Unknown id -> 404
+    const missing = await request(app).post("/api/games/999999/reset-metadata").set(WITH_ORIGIN);
+    expect(missing.status).toBe(404);
+
+    // Bad id -> 400
+    const bad = await request(app).post("/api/games/0/reset-metadata").set(WITH_ORIGIN);
+    expect(bad.status).toBe(400);
+
+    // Game without an IGDB link -> 400 (no defaults to restore)
+    const noLink = await request(app)
+      .post("/api/games")
+      .set(WITH_ORIGIN)
+      .send({ title: "No Link Game", status: "backlog" });
+    expect(noLink.status).toBe(201);
+    const res = await request(app).post(`/api/games/${noLink.body.id}/reset-metadata`).set(WITH_ORIGIN);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("IGDB");
+  });
+
+  it("GET /api/export/db downloads a valid SQLite database snapshot", async () => {
+    const res = await request(app).get("/api/export/db").buffer(true).parse((r, cb) => {
+      const chunks: Buffer[] = [];
+      r.on("data", (c: Buffer) => chunks.push(c));
+      r.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("application/vnd.sqlite3");
+    expect(res.headers["content-disposition"]).toContain("gametrack-backup-");
+    expect(res.headers["content-disposition"]).toContain(".db");
+    // SQLite files start with the magic header "SQLite format 3\0".
+    const body = res.body as Buffer;
+    expect(body.length).toBeGreaterThan(100);
+    expect(body.subarray(0, 16).toString("latin1")).toBe("SQLite format 3\0");
+    // The snapshot must not linger in the data dir.
+    const leftovers = fs.readdirSync(TMP).filter((f) => f.startsWith(".backup-"));
+    expect(leftovers).toEqual([]);
+  });
+
   it("GET and PUT /api/settings/platforms manages custom platform tags", async () => {
     const putRes = await request(app)
       .put("/api/settings/platforms")

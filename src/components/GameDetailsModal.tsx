@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useGameTrackStore } from "../store";
-import { 
-  X, Trash2, Edit2, Trophy, EyeOff, ImageUp
+import {
+  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2
 } from "lucide-react";
 import { formatPlaytimePrecise } from "../utils/time";
 import { motion, AnimatePresence } from "motion/react";
 import { uploadPoster } from "../utils/image";
 import { useModalA11y } from "../hooks/useModalA11y";
-import { STATUSES, getStatusBadgeColor, getStatusLabel, FALLBACK_POSTER_URL, platformIdMatches, mergeCustomPlatforms } from "../constants";
+import { STATUSES, getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms } from "../constants";
 import { PosterImage } from "./PosterImage";
 export const GameDetailsModal: React.FC = React.memo(() => {
-  const { 
+  const {
     selectedGame, setSelectedGame, updateGame, deleteGame,
-    syncGameSynopsis, syncGamePoster, showToast, customPlatforms,
+    syncGameSynopsis, resetGamePoster, resetGameMetadata,
+    showToast, customPlatforms,
     games, openPlayingConflict
   } = useGameTrackStore();
 
@@ -31,6 +32,12 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   const [hidePlaytime, setHidePlaytime] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Change Poster modal — URL entry or device upload.
+  const [posterModalOpen, setPosterModalOpen] = useState(false);
+  const [posterUrlInput, setPosterUrlInput] = useState("");
+  const [posterSaving, setPosterSaving] = useState(false);
+  const [resettingMetadata, setResettingMetadata] = useState(false);
 
   // Hours played (edit form)
   const [hoursPlayed, setHoursPlayed] = useState("");
@@ -82,6 +89,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     );
     setIsEditing(false);
     setDeleteConfirm(false);
+    closePosterModal();
 
     // Initialize hours + minutes to represent the current playtime
     const totalPlaytime = selectedGame.playtime || 0;
@@ -110,40 +118,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         ? prev.filter((id) => id !== platformId)
         : [...prev, platformId]
     );
-  };
-
-  const handleStatusChange = async (targetStatus: "backlog" | "playing" | "completed" | "endless") => {
-    if (!selectedGame) return;
-    if (isEditing) {
-      // Status is saved via Apply while editing — the footer selector is for
-      // quick changes on the read-only view.
-      setEditStatus(targetStatus);
-      return;
-    }
-    if (selectedGame.status === targetStatus) return;
-
-    if (targetStatus === "playing") {
-      const currentlyPlaying = games.find((g) => g.status === "playing" && g.id !== selectedGame.id);
-      if (currentlyPlaying) {
-        openPlayingConflict({
-          currentGame: currentlyPlaying,
-          pendingTitle: selectedGame.title,
-          onConfirmSwitch: async (action) => {
-            await updateGame(currentlyPlaying.id, {
-              status: action === "completed" ? "completed" : "backlog",
-              ...(action === "completed" ? { date_completed: Date.now() } : {}),
-            });
-            await updateGame(selectedGame.id, { status: "playing" });
-          },
-        });
-        return;
-      }
-    }
-
-    await updateGame(selectedGame.id, {
-      status: targetStatus,
-      ...(targetStatus === "completed" && !selectedGame.date_completed ? { date_completed: Date.now() } : {}),
-    });
   };
 
   const handleSaveChanges = async () => {
@@ -262,29 +236,85 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     setDeleteConfirm(false);
   };
 
-  // Poster overlay actions — save immediately, independent of edit mode.
+  // Poster actions — save immediately, independent of edit mode.
+  const closePosterModal = () => {
+    setPosterModalOpen(false);
+    setPosterUrlInput("");
+    setPosterSaving(false);
+  };
+
   const handleUploadPoster = async (file: File) => {
     if (!selectedGame) return;
+    setPosterSaving(true);
     try {
       const url = await uploadPoster(file);
-      setPosterUrl(url);
-      await updateGame(selectedGame.id, { poster_url: url });
+      const ok = await updateGame(selectedGame.id, { poster_url: url });
+      if (ok) {
+        setPosterUrl(url);
+        showToast("Poster updated", "success", selectedGame.title);
+        closePosterModal();
+      }
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : "Failed to upload poster", "error");
+    } finally {
+      setPosterSaving(false);
     }
   };
 
-  const handleRemovePoster = async () => {
+  const handleApplyPosterUrl = async () => {
     if (!selectedGame) return;
-    if (selectedGame.igdb_id) {
-      const original = await syncGamePoster(selectedGame.id, selectedGame.igdb_id);
-      if (original) {
-        setPosterUrl(original);
-        return;
-      }
+    const url = posterUrlInput.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      showToast("Enter a valid image URL (https://…)", "error");
+      return;
     }
-    setPosterUrl(FALLBACK_POSTER_URL);
-    await updateGame(selectedGame.id, { poster_url: FALLBACK_POSTER_URL });
+    setPosterSaving(true);
+    try {
+      const ok = await updateGame(selectedGame.id, { poster_url: url });
+      if (ok) {
+        setPosterUrl(url);
+        showToast("Poster updated", "success", selectedGame.title);
+        closePosterModal();
+      }
+    } finally {
+      setPosterSaving(false);
+    }
+  };
+
+  // Reset restores the default poster: the Steam artwork for Steam-owned
+  // games, the IGDB cover for everything else linked to IGDB.
+  const handleResetPoster = async () => {
+    if (!selectedGame) return;
+    const restored = await resetGamePoster(selectedGame.id);
+    if (restored !== null) {
+      setPosterUrl(restored);
+      showToast(
+        "Poster reset",
+        "success",
+        selectedGame.steam_appid != null ? "Restored the Steam artwork" : "Restored the IGDB cover"
+      );
+    }
+  };
+
+  // Edit Metadata → Reset: pull every metadata field back to the IGDB
+  // defaults and refill the form. User data (status, playtime, rating,
+  // platforms) is untouched server-side.
+  const handleResetMetadata = async () => {
+    if (!selectedGame) return;
+    setResettingMetadata(true);
+    try {
+      const data = await resetGameMetadata(selectedGame.id);
+      if (!data) return;
+      setTitle(data.title);
+      setYear(data.year?.toString() || "");
+      setGenres(data.genres?.join(", ") || "");
+      setSynopsis(data.synopsis);
+      synopsisDirtyRef.current = false;
+      setPosterUrl(data.poster_url);
+      setCriticScore(data.critic_score?.toString() || "");
+    } finally {
+      setResettingMetadata(false);
+    }
   };
 
   // Using imported getStatusBadgeColor from constants
@@ -301,20 +331,22 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (isEditing) {
+        if (posterModalOpen) {
+          closePosterModal();
+        } else if (isEditing) {
           setIsEditing(false);
         } else {
           handleClose();
         }
       }
     };
-    
+
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       document.body.style.overflow = "";
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedGame, setSelectedGame, isEditing, showToast]);
+  }, [selectedGame, setSelectedGame, isEditing, posterModalOpen, showToast]);
 
   const handleClose = () => {
     setSelectedGame(null);
@@ -328,7 +360,9 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         dragStartRef.current = false;
         return;
       }
-      if (isEditing) {
+      if (posterModalOpen) {
+        closePosterModal();
+      } else if (isEditing) {
         setIsEditing(false);
       } else {
         handleClose();
@@ -337,6 +371,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   };
 
   return (
+    <>
     <AnimatePresence>
       {selectedGame && (
         <motion.div
@@ -380,60 +415,60 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 className="w-full h-full object-cover rounded-none border border-brand-border bg-zinc-900"
               />
 
-              {/* Poster hover actions — centered overlay, upload/remove custom poster */}
-              <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2 pointer-events-none">
-                <label
-                  htmlFor="modal-poster-file"
-                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors pointer-events-auto select-none"
-                >
-                  <ImageUp className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">Custom Poster</span>
-                </label>
-                {posterUrl && (
+              {/* Poster actions — custom posters can only be set/reset while
+                  editing metadata (hidden entirely on the read-only view) */}
+              {isEditing && (
+                <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2 pointer-events-none">
                   <button
                     type="button"
-                    title="Restore original poster"
-                    onClick={handleRemovePoster}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-red-600/90 hover:bg-red-500 text-brand-on-color text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer pointer-events-auto shrink-0"
+                    title="Set a custom poster (image URL or device upload)"
+                    onClick={() => setPosterModalOpen(true)}
+                    className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors pointer-events-auto select-none"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <ImageUp className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">Custom Poster</span>
                   </button>
-                )}
-              </div>
-              <input
-                id="modal-poster-file"
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleUploadPoster(file);
-                  e.target.value = "";
-                }}
-              />
+                  {posterUrl && (
+                    <button
+                      type="button"
+                      title={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
+                      aria-label={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
+                      onClick={handleResetPoster}
+                      className="flex items-center justify-center px-3 py-2.5 bg-red-600/90 hover:bg-red-500 text-brand-on-color text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer pointer-events-auto shrink-0"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Touch devices: hover-only overlay is unreachable, so show a
-                persistent poster action row instead */}
-            <div className="hidden gap-2 [@media(hover:none)]:flex">
-              <label
-                htmlFor="modal-poster-file"
-                className="flex flex-1 items-center justify-center gap-1.5 px-3 py-2 bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink text-[10px] font-black uppercase tracking-widest cursor-pointer select-none"
-              >
-                <ImageUp className="w-3.5 h-3.5 shrink-0" />
-                Custom Poster
-              </label>
-              {posterUrl && (
+                persistent poster action row instead (edit mode only) */}
+            {isEditing && (
+              <div className="hidden gap-2 [@media(hover:none)]:flex">
                 <button
                   type="button"
-                  title="Restore original poster"
-                  onClick={handleRemovePoster}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 bg-red-600/90 hover:bg-red-500 text-brand-on-color text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                  title="Set a custom poster (image URL or device upload)"
+                  onClick={() => setPosterModalOpen(true)}
+                  className="flex flex-1 items-center justify-center gap-1.5 px-3 py-2 bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink text-[10px] font-black uppercase tracking-widest cursor-pointer select-none"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <ImageUp className="w-3.5 h-3.5 shrink-0" />
+                  Custom Poster
                 </button>
-              )}
-            </div>
+                {posterUrl && (
+                  <button
+                    type="button"
+                    title={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
+                    aria-label={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
+                    onClick={handleResetPoster}
+                    className="flex items-center justify-center px-3 py-2 bg-red-600/90 hover:bg-red-500 text-brand-on-color text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                  </button>
+                )}
+              </div>
+            )}
             
             <div className="space-y-2">
               <h3 id="details-modal-title" className={`text-xl font-black tracking-tight uppercase ${selectedGame.status === "completed" ? "text-brand-accent" : "text-white"}`}>{selectedGame.title}</h3>
@@ -525,8 +560,18 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               {isEditing ? (
                 <>
                   <button
+                    type="button"
+                    onClick={handleResetMetadata}
+                    disabled={saving || resettingMetadata || selectedGame.igdb_id == null}
+                    title={selectedGame.igdb_id == null ? "No IGDB link — nothing to reset to" : "Reset all metadata to the default IGDB data"}
+                    aria-label={selectedGame.igdb_id == null ? "No IGDB link — nothing to reset to" : "Reset all metadata to the default IGDB data"}
+                    className="flex items-center justify-center w-[34px] h-[34px] bg-red-600/90 hover:bg-red-500 text-brand-on-color rounded-none border border-red-500/40 transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {resettingMetadata ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
                     onClick={handleSaveChanges}
-                    disabled={saving}
+                    disabled={saving || resettingMetadata}
                     className="px-4 h-[34px] bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink rounded-none text-xs font-black uppercase tracking-wider transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {saving ? "Saving…" : "Apply"}
@@ -762,38 +807,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 />
               </div>
 
-              {/* Status — kept inside Edit Metadata so status + details save together via Apply */}
-              <div className="space-y-2">
-                <span id="edit-game-status-label" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Status</span>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="radiogroup" aria-labelledby="edit-game-status-label">
-                  {STATUSES.map((s) => {
-                    const active = editStatus === s.value;
-                    const activeStyles: Record<string, string> = {
-                      backlog: "bg-zinc-700/30 border-zinc-500 text-zinc-200",
-                      playing: "bg-emerald-500/20 border-emerald-500/50 text-emerald-400",
-                      completed: "bg-brand-accent/20 border-brand-accent/50 text-brand-accent",
-                      endless: "bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-400",
-                    };
-                    return (
-                      <button
-                        key={s.value}
-                        type="button"
-                        role="radio"
-                        aria-checked={active}
-                        onClick={() => handleStatusChange(s.value as "backlog" | "playing" | "completed" | "endless")}
-                        className={`h-9 sm:h-10 px-3 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center ${
-                          active
-                            ? activeStyles[s.value]
-                            : "bg-zinc-900/60 border-brand-border/50 text-brand-muted hover:text-white hover:border-zinc-600"
-                        }`}
-                      >
-                        {s.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
             </div>
           ) : (
             <div className="space-y-6">
@@ -854,6 +867,107 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       </motion.div>
       )}
     </AnimatePresence>
+
+    {/* Change Poster modal — set a custom poster via image URL or device upload */}
+    <AnimatePresence>
+      {selectedGame && posterModalOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) closePosterModal(); }}
+        >
+          <motion.div
+            initial={{ scale: 0.96, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.96, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="poster-modal-title"
+            className="w-full max-w-md bg-brand-bg border border-brand-border shadow-2xl"
+          >
+            <div className="px-5 py-4 border-b border-brand-border/60 flex items-center justify-between">
+              <h3 id="poster-modal-title" className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">
+                Change Poster
+              </h3>
+              <button
+                type="button"
+                onClick={closePosterModal}
+                aria-label="Close poster dialog"
+                className="w-[30px] h-[30px] rounded-none bg-zinc-950 border border-brand-border text-brand-muted hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Option 1: image URL */}
+              <div className="space-y-1.5">
+                <label htmlFor="poster-url-input" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">
+                  Poster image URL
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="poster-url-input"
+                    type="url"
+                    value={posterUrlInput}
+                    onChange={(e) => setPosterUrlInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleApplyPosterUrl(); }}
+                    placeholder="https://example.com/poster.jpg"
+                    className="flex-1 min-w-0 px-3 py-2 bg-zinc-950 border border-brand-border rounded-none text-xs font-mono text-white focus:outline-none focus:border-brand-accent placeholder:text-zinc-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyPosterUrl}
+                    disabled={posterSaving || !posterUrlInput.trim()}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink rounded-none text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {posterSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+                    Apply
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-brand-border/60" />
+                <span className="text-[9px] font-mono font-bold uppercase tracking-widest text-brand-muted">or</span>
+                <div className="flex-1 h-px bg-brand-border/60" />
+              </div>
+
+              {/* Option 2: upload from device */}
+              <label
+                htmlFor="poster-modal-file"
+                className={`w-full h-11 flex items-center justify-center gap-2 px-4 rounded-none bg-zinc-900 border border-brand-border text-xs font-black uppercase tracking-wider transition-all select-none ${
+                  posterSaving ? "opacity-50 cursor-not-allowed" : "hover:bg-zinc-800 hover:text-white text-brand-muted cursor-pointer"
+                }`}
+              >
+                {posterSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageUp className="w-4 h-4 text-brand-accent" />}
+                Upload from device
+              </label>
+              <input
+                id="poster-modal-file"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                disabled={posterSaving}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleUploadPoster(file);
+                  e.target.value = "";
+                }}
+              />
+              <p className="text-[10px] font-mono text-brand-muted uppercase tracking-wider leading-relaxed">
+                PNG, JPEG or WebP — uploads are resized and stored locally. Use Reset to restore the original poster.
+              </p>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    </>
   );
 });
 export default GameDetailsModal;

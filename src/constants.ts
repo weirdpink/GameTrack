@@ -210,6 +210,22 @@ export const getStatusBadgeColor = (status: string): string => {
   }
 };
 
+/** Solid square marker colors per status — used by the small corner status
+ *  badges on Library cards. */
+export const getStatusMarkerColor = (status: string): string => {
+  switch (status) {
+    case "playing":
+      return "bg-emerald-500 border-emerald-500 text-zinc-950";
+    case "completed":
+      return "bg-brand-accent border-brand-accent text-zinc-950";
+    case "endless":
+      return "bg-fuchsia-500 border-fuchsia-500 text-zinc-950";
+    case "backlog":
+    default:
+      return "bg-zinc-500 border-zinc-500 text-zinc-950";
+  }
+};
+
 export const getStatusBorderColor = (status: string): string => {
   switch (status) {
     case "backlog":
