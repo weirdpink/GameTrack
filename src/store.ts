@@ -3,10 +3,11 @@ import {
   Game, LibrarySummary,
   GenreAnalytics, NextToPlaySuggestion,
   IGDBGame, SteamSettings, DiscoverLists, CustomizationSettings, WishlistItem, ManualWishlistEntry,
-  PlayingConflict
+  PlayingConflict,   Collection, WeeklyStats, PlaytimeEntry, BackupInfo, DuplicateGroup, StorageStats, BackupSettings
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
 import { Platform, slugifyPlatformLabel, mergeCustomPlatforms } from "./constants";
+import { downloadTextFile, gamesToCsv, gamesToMarkdown } from "./utils/export";
 
 export interface ToastItem {
   id: number;
@@ -107,8 +108,8 @@ interface GameTrackState {
   loadingGames: boolean;
   lastGamesFetch: number;
   gamesError: string | null;
-  filters: { status: string; platform: string; sort: string; search: string };
-  setFilter: (key: "status" | "platform" | "sort" | "search", value: string) => void;
+  filters: { status: string; platform: string; sort: string; search: string; hideCompleted: boolean; hideEndless: boolean; collection: string };
+  setFilter: (key: "status" | "platform" | "sort" | "search" | "hideCompleted" | "hideEndless" | "collection", value: string | boolean) => void;
   resetFilters: () => void;
   fetchGames: (force?: boolean) => Promise<void>;
   addGame: (gameData: Partial<Game>) => Promise<boolean>;
@@ -180,6 +181,47 @@ interface GameTrackState {
   removeCustomPlatform: (id: string) => Promise<boolean>;
   _saveCustomPlatforms: (platforms: Platform[]) => Promise<boolean>;
 
+  collections: Collection[];
+  fetchCollections: () => Promise<void>;
+  createCollection: (name: string) => Promise<boolean>;
+  renameCollection: (id: number, name: string) => Promise<boolean>;
+  deleteCollection: (id: number) => Promise<boolean>;
+  addGameToCollection: (collectionId: number, gameId: number) => Promise<boolean>;
+  addGamesToCollection: (collectionId: number, gameIds: number[]) => Promise<boolean>;
+  removeGameFromCollection: (collectionId: number, gameId: number) => Promise<boolean>;
+
+  weeklyStats: WeeklyStats | null;
+  fetchWeeklyStats: () => Promise<void>;
+
+  gameHistory: PlaytimeEntry[];
+  historyGameId: number | null;
+  fetchGameHistory: (gameId: number) => Promise<void>;
+
+  backups: BackupInfo[];
+  backupSettings: BackupSettings;
+  fetchBackups: () => Promise<void>;
+  fetchBackupSettings: () => Promise<void>;
+  saveBackupSettings: (partial: Partial<BackupSettings>) => Promise<boolean>;
+  createBackup: () => Promise<boolean>;
+  deleteBackup: (name: string) => Promise<boolean>;
+  restoreBackup: (name: string) => Promise<boolean>;
+  restoreBackupFile: (file: File) => Promise<boolean>;
+  downloadBackup: (name: string) => Promise<boolean>;
+  exportLibraryMarkdown: () => boolean;
+  exportLibraryCsv: () => boolean;
+
+  searchFocusToken: number;
+  requestSearchFocus: () => void;
+
+  duplicates: DuplicateGroup[];
+  fetchDuplicates: () => Promise<void>;
+  mergeDuplicates: (keepId: number, removeId: number) => Promise<boolean>;
+
+  storageStats: StorageStats | null;
+  fetchStorageStats: () => Promise<void>;
+  checkpointDatabase: () => Promise<boolean>;
+  cleanOrphanedPosters: () => Promise<{ removed: number; freedBytes: number } | null>;
+
   isAuthOpen: boolean;
   setAuthOpen: (open: boolean) => void;
 
@@ -198,7 +240,7 @@ function getInitialTab(): GameTrackState["activeTab"] {
 }
 
 const FILTERS_KEY = "gametrack_library_filters";
-const DEFAULT_FILTERS = { status: "", platform: "", sort: "recent", search: "" };
+const DEFAULT_FILTERS = { status: "", platform: "", sort: "recent", search: "", hideCompleted: false, hideEndless: false, collection: "" };
 
 function loadSavedFilters(): GameTrackState["filters"] {
   try {
@@ -208,6 +250,9 @@ function loadSavedFilters(): GameTrackState["filters"] {
       platform: typeof parsed.platform === "string" ? parsed.platform : DEFAULT_FILTERS.platform,
       sort: typeof parsed.sort === "string" ? parsed.sort : DEFAULT_FILTERS.sort,
       search: typeof parsed.search === "string" ? parsed.search : DEFAULT_FILTERS.search,
+      hideCompleted: parsed.hideCompleted === true,
+      hideEndless: parsed.hideEndless === true,
+      collection: typeof parsed.collection === "string" ? parsed.collection : DEFAULT_FILTERS.collection,
     };
   } catch {
     return DEFAULT_FILTERS;
@@ -221,17 +266,22 @@ const DEFAULT_CUSTOMIZATIONS: CustomizationSettings = {
   discoverColumns: 6,
   showPlaytimeBadge: true,
   showRatingBadge: true,
+  density: "comfortable",
+  weeklyGoalHours: 5,
 };
 
 function loadSavedCustomizations(): CustomizationSettings {
   try {
     const parsed = JSON.parse(localStorage.getItem(CUSTOMIZATIONS_KEY) || "");
+    const goal = Number(parsed.weeklyGoalHours);
     return {
       theme: isThemeId(parsed.theme) ? parsed.theme : DEFAULT_CUSTOMIZATIONS.theme,
       libraryColumns: [3, 4, 5, 6, 7].includes(parsed.libraryColumns) ? parsed.libraryColumns : 5,
       discoverColumns: [3, 4, 5, 6, 7].includes(parsed.discoverColumns) ? parsed.discoverColumns : 6,
       showPlaytimeBadge: typeof parsed.showPlaytimeBadge === "boolean" ? parsed.showPlaytimeBadge : true,
       showRatingBadge: typeof parsed.showRatingBadge === "boolean" ? parsed.showRatingBadge : true,
+      density: parsed.density === "compact" ? "compact" : "comfortable",
+      weeklyGoalHours: Number.isFinite(goal) ? Math.min(168, Math.max(0, Math.round(goal))) : 5,
     };
   } catch {
     return DEFAULT_CUSTOMIZATIONS;
@@ -428,6 +478,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         selectedGame: state.selectedGame?.id === id ? data : state.selectedGame,
       }));
       get().fetchAnalytics();
+      if (Object.prototype.hasOwnProperty.call(gameData, "playtime")) get().fetchWeeklyStats();
       return true;
     } catch (err: unknown) {
       get().showToast(getErrorMessage(err) || "Error updating game", "error");
@@ -1036,7 +1087,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       const res = await fetch("/api/wipe", { method: "DELETE" });
       if (!res.ok) throw new Error("Wipe failed");
 
-      set({ games: [], selectedGame: null, suggestions: [] });
+      set({ games: [], selectedGame: null, suggestions: [], collections: [] });
       get().showToast("Library wiped", "success", "All local data cleared");
       get().fetchAnalytics();
       return true;
@@ -1239,6 +1290,373 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     const ok = await get()._saveCustomPlatforms(next);
     if (ok) get().showToast("Platform tag removed", "info");
     return ok;
+  },
+
+  // ── Collections ──────────────────────────────────────────────
+  collections: [],
+  fetchCollections: async () => {
+    try {
+      const res = await fetch("/api/collections");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) set({ collections: data });
+    } catch (err) {
+      console.error("Failed to fetch collections:", err);
+    }
+  },
+  createCollection: async (name) => {
+    const trimmed = name.trim().slice(0, 80);
+    if (!trimmed) {
+      get().showToast("Collection name is required", "error");
+      return false;
+    }
+    try {
+      const res = await fetch("/api/collections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (res.status === 409) throw new Error("A collection with that name already exists");
+      if (!res.ok) throw new Error("Failed to create collection");
+      await get().fetchCollections();
+      get().showToast("Collection created", "success", trimmed);
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error creating collection", "error");
+      return false;
+    }
+  },
+  renameCollection: async (id, name) => {
+    const trimmed = name.trim().slice(0, 80);
+    if (!trimmed) {
+      get().showToast("Collection name is required", "error");
+      return false;
+    }
+    try {
+      const res = await fetch(`/api/collections/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (res.status === 409) throw new Error("A collection with that name already exists");
+      if (!res.ok) throw new Error("Failed to rename collection");
+      await get().fetchCollections();
+      get().showToast("Collection renamed", "success", trimmed);
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error renaming collection", "error");
+      return false;
+    }
+  },
+  deleteCollection: async (id) => {
+    try {
+      const res = await fetch(`/api/collections/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete collection");
+      set((state) => ({ collections: state.collections.filter((c) => c.id !== id) }));
+      // A library view filtered to the deleted shelf would go blank — reset it.
+      if (get().filters.collection === String(id)) get().setFilter("collection", "");
+      get().showToast("Collection deleted", "info");
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error deleting collection", "error");
+      return false;
+    }
+  },
+  addGameToCollection: async (collectionId, gameId) => {
+    try {
+      const res = await fetch(`/api/collections/${collectionId}/games`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameId }),
+      });
+      if (!res.ok) throw new Error("Failed to add to collection");
+      await get().fetchCollections();
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error updating collection", "error");
+      return false;
+    }
+  },
+  addGamesToCollection: async (collectionId, gameIds) => {
+    if (!gameIds.length) return false;
+    try {
+      const res = await fetch(`/api/collections/${collectionId}/games/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameIds }),
+      });
+      if (!res.ok) throw new Error("Failed to add to collection");
+      await get().fetchCollections();
+      get().showToast("Added to collection", "success");
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error updating collection", "error");
+      return false;
+    }
+  },
+  removeGameFromCollection: async (collectionId, gameId) => {
+    try {
+      const res = await fetch(`/api/collections/${collectionId}/games/${gameId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to remove from collection");
+      await get().fetchCollections();
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error updating collection", "error");
+      return false;
+    }
+  },
+
+  // ── Weekly goal + playtime history ───────────────────────────
+  weeklyStats: null,
+  fetchWeeklyStats: async () => {
+    try {
+      const res = await fetch("/api/stats/weekly");
+      if (!res.ok) return;
+      set({ weeklyStats: await res.json() });
+    } catch (err) {
+      console.error("Failed to fetch weekly stats:", err);
+    }
+  },
+  gameHistory: [],
+  historyGameId: null,
+  fetchGameHistory: async (gameId) => {
+    try {
+      const res = await fetch(`/api/games/${gameId}/playtime`);
+      if (!res.ok) return;
+      const data = await res.json();
+      set({ gameHistory: Array.isArray(data.entries) ? data.entries : [], historyGameId: gameId });
+    } catch (err) {
+      console.error("Failed to fetch playtime history:", err);
+    }
+  },
+
+  // ── Backups ──────────────────────────────────────────────────
+  backups: [],
+  backupSettings: { enabled: true, keep: 5 },
+  fetchBackupSettings: async () => {
+    try {
+      const res = await fetch("/api/settings/backups");
+      if (!res.ok) return;
+      const data = await res.json();
+      set({ backupSettings: { enabled: data.enabled !== false, keep: Number(data.keep) || 5 } });
+    } catch (err) {
+      console.error("Failed to fetch backup settings:", err);
+    }
+  },
+  saveBackupSettings: async (partial) => {
+    try {
+      const next = { ...get().backupSettings, ...partial };
+      const res = await fetch("/api/settings/backups", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      if (!res.ok) throw new Error("Failed to save backup settings");
+      const data = await res.json();
+      set({ backupSettings: { enabled: data.enabled !== false, keep: Number(data.keep) || 5 } });
+      await get().fetchBackups();
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error saving backup settings", "error");
+      return false;
+    }
+  },
+  fetchBackups: async () => {
+    try {
+      const res = await fetch("/api/backups");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) set({ backups: data });
+    } catch (err) {
+      console.error("Failed to fetch backups:", err);
+    }
+  },
+  createBackup: async () => {
+    try {
+      const res = await fetch("/api/backups", { method: "POST" });
+      if (!res.ok) throw new Error("Failed to create backup");
+      const data = await res.json();
+      if (Array.isArray(data)) set({ backups: data });
+      get().showToast("Backup created", "success");
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error creating backup", "error");
+      return false;
+    }
+  },
+  deleteBackup: async (name) => {
+    try {
+      const res = await fetch(`/api/backups/${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete backup");
+      set((state) => ({ backups: state.backups.filter((b) => b.name !== name) }));
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error deleting backup", "error");
+      return false;
+    }
+  },
+  restoreBackup: async (name) => {
+    try {
+      const res = await fetch(`/api/backups/${encodeURIComponent(name)}/restore`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "Restore failed");
+      }
+      // Library identity changed wholesale — refresh everything from scratch.
+      await get().fetchGames(true);
+      await get().fetchCollections();
+      await get().fetchAnalytics();
+      await get().fetchWishlist(true);
+      await get().fetchWeeklyStats();
+      await get().fetchCustomPlatforms();
+      get().showToast("Backup restored", "success", name);
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error restoring backup", "error");
+      return false;
+    }
+  },
+  downloadBackup: async (name) => {
+    try {
+      const res = await fetch(`/api/backups/${encodeURIComponent(name)}/download`);
+      if (!res.ok) throw new Error("Failed to download backup");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error downloading backup", "error");
+      return false;
+    }
+  },
+  restoreBackupFile: async (file) => {
+    try {
+      const res = await fetch("/api/backups/restore-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: await file.arrayBuffer(),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "Restore failed");
+      }
+      await get().fetchGames(true);
+      await get().fetchCollections();
+      await get().fetchAnalytics();
+      await get().fetchWishlist(true);
+      await get().fetchWeeklyStats();
+      await get().fetchCustomPlatforms();
+      get().showToast("Backup restored", "success", file.name);
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error restoring backup", "error");
+      return false;
+    }
+  },
+  exportLibraryMarkdown: () => {
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadTextFile(`gametrack-library-${stamp}.md`, gamesToMarkdown(get().games, get().collections), "text/markdown;charset=utf-8");
+      get().showToast("Markdown exported", "success");
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Export failed", "error");
+      return false;
+    }
+  },
+  exportLibraryCsv: () => {
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadTextFile(`gametrack-library-${stamp}.csv`, gamesToCsv(get().games, get().collections), "text/csv;charset=utf-8");
+      get().showToast("CSV exported", "success");
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Export failed", "error");
+      return false;
+    }
+  },
+
+  searchFocusToken: 0,
+  requestSearchFocus: () => set((state) => ({ searchFocusToken: state.searchFocusToken + 1 })),
+
+  // ── Duplicates ───────────────────────────────────────────────
+  duplicates: [],
+  fetchDuplicates: async () => {
+    try {
+      const res = await fetch("/api/duplicates");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) set({ duplicates: data });
+    } catch (err) {
+      console.error("Failed to fetch duplicates:", err);
+    }
+  },
+  mergeDuplicates: async (keepId, removeId) => {
+    try {
+      const res = await fetch("/api/duplicates/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keepId, removeId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "Merge failed");
+      }
+      await get().fetchGames(true);
+      await get().fetchDuplicates();
+      await get().fetchCollections();
+      get().showToast("Games merged", "success");
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error merging games", "error");
+      return false;
+    }
+  },
+
+  // ── Storage ──────────────────────────────────────────────────
+  storageStats: null,
+  fetchStorageStats: async () => {
+    try {
+      const res = await fetch("/api/storage");
+      if (!res.ok) return;
+      set({ storageStats: await res.json() });
+    } catch (err) {
+      console.error("Failed to fetch storage stats:", err);
+    }
+  },
+  checkpointDatabase: async () => {
+    try {
+      const res = await fetch("/api/storage/checkpoint", { method: "POST" });
+      if (!res.ok) throw new Error("Checkpoint failed");
+      await get().fetchStorageStats();
+      get().showToast("Database checkpointed", "success");
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error running checkpoint", "error");
+      return false;
+    }
+  },
+  cleanOrphanedPosters: async () => {
+    try {
+      const res = await fetch("/api/storage/clean-posters", { method: "POST" });
+      if (!res.ok) throw new Error("Cleanup failed");
+      const data = await res.json();
+      await get().fetchStorageStats();
+      get().showToast(
+        data.removed ? `Removed ${data.removed} orphaned poster${data.removed === 1 ? "" : "s"}` : "No orphaned posters",
+        "success"
+      );
+      return { removed: data.removed || 0, freedBytes: data.freedBytes || 0 };
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error cleaning posters", "error");
+      return null;
+    }
   },
 
   // ── Local Auth (cosmetic) ────────────────────────────────────

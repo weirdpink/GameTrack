@@ -14,7 +14,9 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     selectedGame, setSelectedGame, updateGame, deleteGame,
     syncGameSynopsis, resetGamePoster, resetGameMetadata,
     showToast, customPlatforms, customizations,
-    games, openPlayingConflict
+    games, openPlayingConflict,
+    collections, addGameToCollection, removeGameFromCollection,
+    gameHistory, historyGameId, fetchGameHistory,
   } = useGameTrackStore();
 
   const availablePlatforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
@@ -23,6 +25,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   const [editStatus, setEditStatus] = useState<"backlog" | "playing" | "completed" | "endless">("backlog");
   const [title, setTitle] = useState("");
   const [year, setYear] = useState("");
+  const [dateCompleted, setDateCompleted] = useState("");
   const [genres, setGenres] = useState("");
   const [synopsis, setSynopsis] = useState("");
   const [posterUrl, setPosterUrl] = useState("");
@@ -44,6 +47,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   const [minutesPlayed, setMinutesPlayed] = useState("");
   const [ratingHover, setRatingHover] = useState<number | null>(null);
   const ratingValue = personalRating === "" ? 0 : parseInt(personalRating, 10) || 0;
+  const [askCompletion, setAskCompletion] = useState(false);
 
   // True once the user types in the synopsis textarea; while set, background
   // synopsis refreshes (IGDB auto-sync) must not clobber their in-progress edit.
@@ -64,6 +68,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
     setTitle(selectedGame.title);
     setYear(selectedGame.year?.toString() || "");
+    setDateCompleted(selectedGame.date_completed ? new Date(selectedGame.date_completed).toISOString().slice(0, 10) : "");
     setGenres(selectedGame.genres?.join(", ") || "");
     setSynopsis(selectedGame.synopsis);
     synopsisDirtyRef.current = false;
@@ -181,7 +186,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         owned_platforms: selectedPlatforms,
         hide_playtime: hidePlaytime ? 1 : 0,
         status: targetStatus,
-        ...(targetStatus === "completed" && !selectedGame.date_completed ? { date_completed: Date.now() } : {}),
+        date_completed: dateCompleted ? new Date(dateCompleted + "T00:00:00").getTime() : (targetStatus === "completed" && !selectedGame.date_completed ? Date.now() : selectedGame.date_completed ?? null),
       };
 
       // "Playing" is exclusive: if another game is playing, offer to park it.
@@ -606,7 +611,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               <div className="space-y-4">
                 {/* Editable Title */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
+                <div className="space-y-1 sm:col-span-2">
                   <label htmlFor="edit-game-title" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Game Title</label>
                   <input
                     id="edit-game-title"
@@ -616,6 +621,9 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     className="w-full px-4 py-2 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
                   />
                 </div>
+              </div>
+
+<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
                   <label htmlFor="edit-game-year" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Release Year</label>
                   <input
@@ -626,16 +634,13 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     className="w-full px-4 py-2 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label htmlFor="edit-game-genres" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Genres (comma separated)</label>
+                  <label htmlFor="edit-game-completed" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Completion Date</label>
                   <input
-                    id="edit-game-genres"
-                    type="text"
-                    value={genres}
-                    onChange={(e) => setGenres(e.target.value)}
+                    id="edit-game-completed"
+                    type="date"
+                    value={dateCompleted || ""}
+                    onChange={(e) => setDateCompleted(e.target.value)}
                     className="w-full px-4 py-2 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
                   />
                 </div>
@@ -755,7 +760,12 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                         type="button"
                         role="radio"
                         aria-checked={active}
-                        onClick={() => setEditStatus(s.value)}
+                        onClick={() => {
+                          setEditStatus(s.value);
+                          if (s.value === "completed" && !dateCompleted) {
+                            setDateCompleted(new Date().toISOString().slice(0, 10));
+                          }
+                        }}
                         className={`h-9 sm:h-10 px-3 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center ${
                           active
                             ? activeStyles[s.value]

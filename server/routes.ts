@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import Database from "better-sqlite3";
 import db from "./db";
 import { z } from "zod";
 import { normalizePlatformIds, AVAILABLE_PLATFORMS } from "../src/constants";
@@ -41,6 +42,44 @@ function safeJsonParse<T = unknown>(value: string | null | undefined, fallback: 
 
 function isUniqueConstraintError(err: unknown): boolean {
   return err instanceof Error && err.message.includes("UNIQUE constraint failed");
+}
+
+const logPlaytimeInsert = db.prepare(
+  "INSERT INTO playtime_entries (game_id, hours, logged_at) VALUES (?, ?, ?)"
+);
+
+/** Record a playtime increase. Never fabricates sessions for existing totals. */
+function logPlaytimeDelta(gameId: number, hours: number, loggedAt: number): void {
+  if (hours < 0.01) return;
+  logPlaytimeInsert.run(gameId, hours, loggedAt);
+}
+
+function weekStartAt(ts: number): number {
+  const d = new Date(ts);
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+  monday.setHours(0, 0, 0, 0);
+  return monday.getTime();
+}
+
+function currentWeekStart(): number {
+  return weekStartAt(Date.now());
+}
+
+function weeklyPlaytimeSeries(weeks: number): { weekStart: number; loggedHours: number }[] {
+  const current = currentWeekStart();
+  const oldest = current - (weeks - 1) * 7 * 24 * 60 * 60 * 1000;
+  const rows = db
+    .prepare("SELECT hours, logged_at FROM playtime_entries WHERE logged_at >= ?")
+    .all(oldest) as { hours: number; logged_at: number }[];
+  const buckets = new Map<number, number>();
+  for (let i = 0; i < weeks; i++) buckets.set(current - i * 7 * 24 * 60 * 60 * 1000, 0);
+  for (const row of rows) {
+    const start = weekStartAt(row.logged_at);
+    if (buckets.has(start)) buckets.set(start, (buckets.get(start) || 0) + row.hours);
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([weekStart, hours]) => ({ weekStart, loggedHours: Math.round(hours * 100) / 100 }));
 }
 
 /** Shown whenever IGDB rejects the stored credentials — tells the operator the fix. */
@@ -400,7 +439,17 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
         ? 1
         : existing.metadata_custom;
 
-    stmts.updateGame.run({
+    // User-raised playtime is a played session — log it for the weekly goal
+    // and history. Steam-sync writes bypass PUT and are never logged (bulk
+    // corrections, not sessions).
+    const playDelta =
+      sent("playtime") && typeof g.playtime === "number"
+        ? Math.round((g.playtime - (existing.playtime || 0)) * 100) / 100
+        : 0;
+
+    const apply = db.transaction(() => {
+      if (playDelta >= 0.01) logPlaytimeDelta(gameId, playDelta, now);
+      stmts.updateGame.run({
       title: g.title ?? existing.title,
       year: g.year !== undefined ? g.year : existing.year,
       igdb_id: g.igdb_id !== undefined ? g.igdb_id : existing.igdb_id,
@@ -421,6 +470,8 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
       updated_at: now,
       id: gameId,
     });
+    });
+    apply();
     const updated = parseGame(stmts.getGameById.get(gameId));
     res.json(updated);
   } catch (err) {
@@ -552,6 +603,8 @@ apiRouter.get("/analytics", (_req: Request, res: Response) => {
       ORDER BY updated_at DESC
     `).all(thresholdMs).map(parseGame);
 
+    const playtimeWeeks = weeklyPlaytimeSeries(8);
+
     res.json({
       summary: {
         total_games: summary.total_games || 0,
@@ -563,6 +616,7 @@ apiRouter.get("/analytics", (_req: Request, res: Response) => {
       },
       genreAnalytics,
       recentActivity,
+      playtimeWeeks,
     });
   } catch (err) {
     console.error("GET /api/analytics error:", err);
@@ -884,7 +938,7 @@ export async function runSteamSyncInternal(): Promise<{
     });
 
     const getBySteamAppid = db.prepare("SELECT * FROM games WHERE steam_appid = ?");
-    const getByTitle = db.prepare("SELECT id, owned_platforms FROM games WHERE steam_appid IS NULL AND lower(title) = lower(?)");
+    const getByTitle = db.prepare("SELECT id, owned_platforms, playtime FROM games WHERE steam_appid IS NULL AND lower(title) = lower(?)");
     const delExcluded = db.prepare("DELETE FROM games WHERE (steam_appid = ? OR lower(title) = lower(?)) AND personal_rating IS NULL AND poster_url NOT LIKE '/posters/%'");
 
     if (excludedAppids.size) {
@@ -919,6 +973,9 @@ export async function runSteamSyncInternal(): Promise<{
           existing.metadata_custom === 1 ||
           existing.personal_rating !== null ||
           hasCustomPoster;
+        const nextPlay = Number(game.playtime) || 0;
+        const prevPlay = Number(existing.playtime) || 0;
+        const delta = Math.round((nextPlay - prevPlay) * 100) / 100;
         stmts.updateGame.run({
           title: preserve ? existing.title : game.title,
           year: preserve ? existing.year : (game.year ?? existing.year),
@@ -929,7 +986,7 @@ export async function runSteamSyncInternal(): Promise<{
           critic_score: preserve ? existing.critic_score : (game.critic_score ?? existing.critic_score),
           owned_platforms: JSON.stringify(game.owned_platforms),
           status: existing.status,
-          playtime: game.playtime,
+          playtime: nextPlay,
           personal_rating: existing.personal_rating,
           date_added: existing.date_added,
           date_completed: existing.date_completed,
@@ -940,6 +997,7 @@ export async function runSteamSyncInternal(): Promise<{
           updated_at: Date.now(),
           id: existing.id,
         });
+        if (delta >= 0.01) logPlaytimeDelta(existing.id, delta, Date.now());
         updated++;
         return;
       }
@@ -947,7 +1005,11 @@ export async function runSteamSyncInternal(): Promise<{
       const titleMatch = getByTitle.get(game.title) as any;
       if (titleMatch) {
         const mergedPlatforms = new Set<string>([...safeJsonParse<string[]>(titleMatch.owned_platforms, []), ...game.owned_platforms]);
-        adoptSteamAppid.run(game.steam_appid, game.playtime, JSON.stringify([...mergedPlatforms]), Date.now(), titleMatch.id);
+        const nextPlay = Number(game.playtime) || 0;
+        const prevPlay = Number(titleMatch.playtime) || 0;
+        adoptSteamAppid.run(game.steam_appid, nextPlay, JSON.stringify([...mergedPlatforms]), Date.now(), titleMatch.id);
+        const delta = Math.round((nextPlay - prevPlay) * 100) / 100;
+        if (delta >= 0.01) logPlaytimeDelta(titleMatch.id, delta, Date.now());
         adopted++;
         return;
       }
@@ -1041,6 +1103,8 @@ apiRouter.delete("/wipe", (_req: Request, res: Response) => {
   try {
     const wipe = db.transaction(() => {
       stmts.deleteAllGames.run();
+      db.exec("DELETE FROM collections");
+      db.exec("DELETE FROM playtime_entries");
     });
     wipe();
     res.json({ success: true });
@@ -1357,5 +1421,678 @@ apiRouter.post("/wishlist/:id/own", (req: Request, res: Response) => {
   } catch (err) {
     console.error("POST /api/wishlist/:id/own error:", err);
     res.status(500).json({ error: "Failed to move game to library" });
+  }
+});
+
+// ── COLLECTIONS ─────────────────────────────────────────────────────
+// User-named shelves ("Co-op", "Horror October") grouping library games.
+// Membership is a pure link table — games keep their status and metadata.
+
+const CollectionSchema = z.object({ name: z.string().trim().min(1).max(80) });
+const CollectionGameSchema = z.object({ gameId: z.number().int().positive() });
+
+function listCollections() {
+  const rows = db.prepare("SELECT id, name, created_at FROM collections ORDER BY name").all() as { id: number; name: string; created_at: number }[];
+  const counts = db.prepare("SELECT collection_id, COUNT(*) AS n FROM collection_games GROUP BY collection_id").all() as { collection_id: number; n: number }[];
+  const ids = db.prepare("SELECT collection_id, game_id FROM collection_games").all() as { collection_id: number; game_id: number }[];
+  const countBy = new Map(counts.map((c) => [c.collection_id, c.n]));
+  const idsBy = new Map<number, number[]>();
+  for (const row of ids) {
+    const list = idsBy.get(row.collection_id) || [];
+    list.push(row.game_id);
+    idsBy.set(row.collection_id, list);
+  }
+  return rows.map((c) => ({ ...c, game_count: countBy.get(c.id) || 0, game_ids: idsBy.get(c.id) || [] }));
+}
+
+// GET /api/collections
+apiRouter.get("/collections", (_req: Request, res: Response) => {
+  try {
+    res.json(listCollections());
+  } catch (err) {
+    console.error("GET /api/collections error:", err);
+    res.status(500).json({ error: "Failed to fetch collections" });
+  }
+});
+
+// POST /api/collections { name }
+apiRouter.post("/collections", (req: Request, res: Response) => {
+  try {
+    const parsed = CollectionSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Collection name is required (max 80 chars)" });
+    const name = parsed.data.name;
+    try {
+      const info = db.prepare("INSERT INTO collections (name, created_at) VALUES (?, ?)").run(name, Date.now());
+      const row = db.prepare("SELECT id, name, created_at FROM collections WHERE id = ?").get(info.lastInsertRowid);
+      res.status(201).json({ ...(row as object), game_count: 0, game_ids: [] });
+    } catch (err) {
+      if (isUniqueConstraintError(err)) return res.status(409).json({ error: "A collection with that name already exists." });
+      throw err;
+    }
+  } catch (err) {
+    console.error("POST /api/collections error:", err);
+    res.status(500).json({ error: "Failed to create collection" });
+  }
+});
+
+// DELETE /api/collections/:id (membership rows cascade)
+apiRouter.delete("/collections/:id", (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid collection ID" });
+    const result = db.prepare("DELETE FROM collections WHERE id = ?").run(paramParsed.data.id);
+    if (result.changes === 0) return res.status(404).json({ error: "Collection not found" });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /api/collections/:id error:", err);
+    res.status(500).json({ error: "Failed to delete collection" });
+  }
+});
+
+// PATCH /api/collections/:id { name } — rename without breaking memberships
+apiRouter.patch("/collections/:id", (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    const bodyParsed = CollectionSchema.safeParse(req.body);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid collection ID" });
+    if (!bodyParsed.success) return res.status(400).json({ error: "Collection name is required (max 80 chars)" });
+    try {
+      const result = db.prepare("UPDATE collections SET name = ? WHERE id = ?").run(bodyParsed.data.name, paramParsed.data.id);
+      if (result.changes === 0) return res.status(404).json({ error: "Collection not found" });
+    } catch (err) {
+      if (isUniqueConstraintError(err)) return res.status(409).json({ error: "A collection with that name already exists." });
+      throw err;
+    }
+    res.json(listCollections().find((c) => c.id === paramParsed.data.id));
+  } catch (err) {
+    console.error("PATCH /api/collections/:id error:", err);
+    res.status(500).json({ error: "Failed to rename collection" });
+  }
+});
+
+// POST /api/collections/:id/games { gameId }
+apiRouter.post("/collections/:id/games", (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    const bodyParsed = CollectionGameSchema.safeParse(req.body);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid collection ID" });
+    if (!bodyParsed.success) return res.status(400).json({ error: "Invalid game ID" });
+    const collectionId = paramParsed.data.id;
+    const { gameId } = bodyParsed.data;
+    if (!db.prepare("SELECT id FROM collections WHERE id = ?").get(collectionId)) {
+      return res.status(404).json({ error: "Collection not found" });
+    }
+    if (!stmts.getGameById.get(gameId)) return res.status(404).json({ error: "Game not found" });
+    db.prepare("INSERT OR IGNORE INTO collection_games (collection_id, game_id, added_at) VALUES (?, ?, ?)")
+      .run(collectionId, gameId, Date.now());
+    res.status(201).json({ success: true });
+  } catch (err) {
+    console.error("POST /api/collections/:id/games error:", err);
+    res.status(500).json({ error: "Failed to add game to collection" });
+  }
+});
+
+const CollectionBulkSchema = z.object({ gameIds: z.array(z.number().int().positive()).min(1).max(500) });
+
+// POST /api/collections/:id/games/bulk { gameIds }
+apiRouter.post("/collections/:id/games/bulk", (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    const bodyParsed = CollectionBulkSchema.safeParse(req.body);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid collection ID" });
+    if (!bodyParsed.success) return res.status(400).json({ error: "gameIds is required" });
+    const collectionId = paramParsed.data.id;
+    if (!db.prepare("SELECT id FROM collections WHERE id = ?").get(collectionId)) {
+      return res.status(404).json({ error: "Collection not found" });
+    }
+    const insert = db.prepare("INSERT OR IGNORE INTO collection_games (collection_id, game_id, added_at) VALUES (?, ?, ?)");
+    const exists = db.prepare("SELECT id FROM games WHERE id = ?");
+    const now = Date.now();
+    const apply = db.transaction((ids: number[]) => {
+      let added = 0;
+      for (const gameId of ids) {
+        if (!exists.get(gameId)) continue;
+        const info = insert.run(collectionId, gameId, now);
+        if (info.changes) added++;
+      }
+      return added;
+    });
+    const added = apply(bodyParsed.data.gameIds);
+    res.status(201).json({ success: true, added });
+  } catch (err) {
+    console.error("POST /api/collections/:id/games/bulk error:", err);
+    res.status(500).json({ error: "Failed to add games to collection" });
+  }
+});
+
+// DELETE /api/collections/:id/games/:gameId
+apiRouter.delete("/collections/:id/games/:gameId", (req: Request, res: Response) => {
+  try {
+    const parsed = z.object({ id: z.coerce.number().int().positive(), gameId: z.coerce.number().int().positive() }).safeParse(req.params);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid collection or game ID" });
+    db.prepare("DELETE FROM collection_games WHERE collection_id = ? AND game_id = ?").run(parsed.data.id, parsed.data.gameId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /api/collections/:id/games error:", err);
+    res.status(500).json({ error: "Failed to remove game from collection" });
+  }
+});
+
+// ── PLAYTIME HISTORY + WEEKLY GOAL ──────────────────────────────────
+
+// GET /api/games/:id/playtime — session log for one game (newest first)
+apiRouter.get("/games/:id/playtime", (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid game ID" });
+    if (!stmts.getGameById.get(paramParsed.data.id)) return res.status(404).json({ error: "Game not found" });
+    const rows = db.prepare("SELECT id, game_id, hours, logged_at FROM playtime_entries WHERE game_id = ? ORDER BY logged_at DESC LIMIT 50")
+      .all(paramParsed.data.id);
+    const total = db.prepare("SELECT COALESCE(SUM(hours), 0) AS h FROM playtime_entries WHERE game_id = ?").get(paramParsed.data.id) as { h: number };
+    res.json({ entries: rows, loggedTotal: Math.round(total.h * 100) / 100 });
+  } catch (err) {
+    console.error("GET /api/games/:id/playtime error:", err);
+    res.status(500).json({ error: "Failed to fetch playtime history" });
+  }
+});
+
+// GET /api/stats/weekly — hours logged since Monday
+apiRouter.get("/stats/weekly", (_req: Request, res: Response) => {
+  try {
+    const weekStart = currentWeekStart();
+    const row = db.prepare("SELECT COALESCE(SUM(hours), 0) AS h, COUNT(*) AS n FROM playtime_entries WHERE logged_at >= ?")
+      .get(weekStart) as { h: number; n: number };
+    res.json({
+      weekStart,
+      loggedHours: Math.round(row.h * 100) / 100,
+      entryCount: row.n,
+      weeks: weeklyPlaytimeSeries(8),
+    });
+  } catch (err) {
+    console.error("GET /api/stats/weekly error:", err);
+    res.status(500).json({ error: "Failed to compute weekly stats" });
+  }
+});
+
+// ── BACKUPS ─────────────────────────────────────────────────────────
+// Automatic daily snapshots plus on-demand ones, kept in data/backups.
+// Restores copy tables online inside a transaction — no restart needed.
+
+const BACKUP_DIR = path.join(DATA_DIR, "backups");
+const BACKUP_NAME_RE = /^[a-zA-Z0-9._-]+\.db$/;
+const USER_TABLES = ["games", "wishlist", "settings", "collections", "collection_games", "playtime_entries"] as const;
+
+function ensureBackupDir(): void {
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
+}
+
+function getBackupSettings(): { enabled: boolean; keep: number } {
+  const enabledRow = stmts.getSettings.get("auto_backup") as { value: string } | undefined;
+  const keepRow = stmts.getSettings.get("backup_keep") as { value: string } | undefined;
+  const keep = Math.min(30, Math.max(1, Number.parseInt(keepRow?.value || "5", 10) || 5));
+  return { enabled: enabledRow?.value !== "0", keep };
+}
+
+function listBackups() {
+  ensureBackupDir();
+  return fs.readdirSync(BACKUP_DIR)
+    .filter((f) => f.endsWith(".db"))
+    .map((name) => {
+      const st = fs.statSync(path.join(BACKUP_DIR, name));
+      return { name, created_at: Math.round(st.mtimeMs), size: st.size };
+    })
+    .sort((a, b) => b.created_at - a.created_at);
+}
+
+function pruneBackups(keep: number): void {
+  const all = listBackups();
+  for (const extra of all.slice(keep)) {
+    fs.rmSync(path.join(BACKUP_DIR, extra.name), { force: true });
+  }
+}
+
+let backupBusy = false;
+
+async function withBackupLock<T>(fn: () => Promise<T>): Promise<T> {
+  if (backupBusy) {
+    const err = new Error("A backup or restore is already running.");
+    (err as Error & { status: number }).status = 409;
+    throw err;
+  }
+  backupBusy = true;
+  try {
+    return await fn();
+  } finally {
+    backupBusy = false;
+  }
+}
+
+/** Create a snapshot now and prune to the configured retention. Returns the list. */
+export async function createBackupNow(): Promise<{ name: string; created_at: number; size: number }[]> {
+  return withBackupLock(async () => {
+    ensureBackupDir();
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const name = `gametrack-backup-${stamp}.db`;
+    await db.backup(path.join(BACKUP_DIR, name));
+    pruneBackups(getBackupSettings().keep);
+    return listBackups();
+  });
+}
+
+/** One snapshot per day, called at boot. Never throws. */
+export async function ensureDailyBackup(): Promise<void> {
+  try {
+    if (!getBackupSettings().enabled) return;
+    ensureBackupDir();
+    const today = new Date().toISOString().slice(0, 10);
+    const hasToday = fs.readdirSync(BACKUP_DIR).some((f) => f.endsWith(".db") && f.includes(today));
+    if (!hasToday) await createBackupNow();
+  } catch (err) {
+    console.warn("Automatic backup skipped:", err instanceof Error ? err.message : err);
+  }
+}
+
+function validateBackupFile(file: string): { ok: true } | { ok: false; error: string } {
+  try {
+    const header = Buffer.alloc(16);
+    const fd = fs.openSync(file, "r");
+    try {
+      fs.readSync(fd, header, 0, 16, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    if (header.toString("latin1") !== "SQLite format 3\0") {
+      return { ok: false, error: "File is not a SQLite database." };
+    }
+    const probe = new Database(file, { readonly: true });
+    try {
+      const integrity = probe.pragma("integrity_check", { simple: true }) as unknown;
+      if (integrity !== "ok") return { ok: false, error: "Backup failed integrity check and was not restored." };
+      const tables = probe.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[];
+      const names = new Set(tables.map((t) => t.name));
+      if (!names.has("games") || !names.has("settings")) {
+        return { ok: false, error: "Backup is missing expected tables and was not restored." };
+      }
+    } finally {
+      probe.close();
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not read backup file." };
+  }
+}
+
+function tableColumns(schema: string, table: string): string[] {
+  try {
+    return (db.prepare(`PRAGMA ${schema}.table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  } catch {
+    return [];
+  }
+}
+
+function restoreFromValidatedFile(file: string): void {
+  const esc = file.replace(/'/g, "''");
+  db.exec(`ATTACH DATABASE '${esc}' AS snap`);
+  try {
+    db.pragma("foreign_keys = OFF");
+    const copy = db.transaction(() => {
+      for (const t of USER_TABLES) {
+        db.exec(`DELETE FROM main."${t}"`);
+        const destCols = tableColumns("main", t);
+        const srcCols = tableColumns("snap", t);
+        if (!destCols.length || !srcCols.length) continue;
+        const cols = destCols.filter((c) => srcCols.includes(c));
+        if (!cols.length) continue;
+        const list = cols.map((c) => `"${c}"`).join(", ");
+        db.exec(`INSERT INTO main."${t}" (${list}) SELECT ${list} FROM snap."${t}"`);
+      }
+    });
+    copy();
+  } finally {
+    try { db.exec("DETACH DATABASE snap"); } catch { /* already detached */ }
+    db.pragma("foreign_keys = ON");
+  }
+}
+
+async function restoreBackupFile(file: string): Promise<void> {
+  const valid = validateBackupFile(file);
+  if (!valid.ok) {
+    const err = new Error(valid.error);
+    (err as Error & { status: number }).status = 422;
+    throw err;
+  }
+  await withBackupLock(async () => {
+    ensureBackupDir();
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const safety = `gametrack-backup-pre-restore-${stamp}.db`;
+    await db.backup(path.join(BACKUP_DIR, safety));
+    restoreFromValidatedFile(file);
+    pruneBackups(getBackupSettings().keep);
+  });
+}
+
+// GET /api/settings/backups
+apiRouter.get("/settings/backups", (_req: Request, res: Response) => {
+  try {
+    res.json(getBackupSettings());
+  } catch (err) {
+    console.error("GET /api/settings/backups error:", err);
+    res.status(500).json({ error: "Failed to read backup settings" });
+  }
+});
+
+const BackupSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  keep: z.number().int().min(1).max(30).optional(),
+});
+
+// PUT /api/settings/backups
+apiRouter.put("/settings/backups", (req: Request, res: Response) => {
+  try {
+    const parsed = BackupSettingsSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid backup settings" });
+    const current = getBackupSettings();
+    const next = {
+      enabled: parsed.data.enabled ?? current.enabled,
+      keep: parsed.data.keep ?? current.keep,
+    };
+    stmts.upsertSettings.run("auto_backup", next.enabled ? "1" : "0");
+    stmts.upsertSettings.run("backup_keep", String(next.keep));
+    pruneBackups(next.keep);
+    res.json(next);
+  } catch (err) {
+    console.error("PUT /api/settings/backups error:", err);
+    res.status(500).json({ error: "Failed to save backup settings" });
+  }
+});
+
+// GET /api/backups
+apiRouter.get("/backups", (_req: Request, res: Response) => {
+  try {
+    res.json(listBackups());
+  } catch (err) {
+    console.error("GET /api/backups error:", err);
+    res.status(500).json({ error: "Failed to list backups" });
+  }
+});
+
+// POST /api/backups — snapshot now
+apiRouter.post("/backups", async (_req: Request, res: Response) => {
+  try {
+    res.status(201).json(await createBackupNow());
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 409) return res.status(409).json({ error: (err as Error).message });
+    console.error("POST /api/backups error:", err);
+    res.status(500).json({ error: "Failed to create backup" });
+  }
+});
+
+// GET /api/backups/:name/download
+apiRouter.get("/backups/:name/download", (req: Request, res: Response) => {
+  try {
+    const name = String(req.params.name || "");
+    if (!BACKUP_NAME_RE.test(name)) return res.status(400).json({ error: "Invalid backup name" });
+    const file = path.join(BACKUP_DIR, path.basename(name));
+    if (!fs.existsSync(file)) return res.status(404).json({ error: "Backup not found" });
+    res.setHeader("Content-Type", "application/vnd.sqlite3");
+    res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+    res.sendFile(file);
+  } catch (err) {
+    console.error("GET /api/backups/:name/download error:", err);
+    res.status(500).json({ error: "Failed to download backup" });
+  }
+});
+
+// DELETE /api/backups/:name
+apiRouter.delete("/backups/:name", (req: Request, res: Response) => {
+  try {
+    const name = String(req.params.name || "");
+    if (!BACKUP_NAME_RE.test(name)) return res.status(400).json({ error: "Invalid backup name" });
+    const file = path.join(BACKUP_DIR, path.basename(name));
+    if (!fs.existsSync(file)) return res.status(404).json({ error: "Backup not found" });
+    fs.rmSync(file, { force: true });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /api/backups/:name error:", err);
+    res.status(500).json({ error: "Failed to delete backup" });
+  }
+});
+
+// POST /api/backups/:name/restore — validate, safety-snapshot, copy tables online.
+apiRouter.post("/backups/:name/restore", async (req: Request, res: Response) => {
+  try {
+    const name = String(req.params.name || "");
+    if (!BACKUP_NAME_RE.test(name)) return res.status(400).json({ error: "Invalid backup name" });
+    const file = path.join(BACKUP_DIR, path.basename(name));
+    if (!fs.existsSync(file)) return res.status(404).json({ error: "Backup not found" });
+    await restoreBackupFile(file);
+    res.json({ success: true, games: stmts.getAllGames.all().map(parseGame) });
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 409 || status === 422) return res.status(status).json({ error: (err as Error).message });
+    console.error("POST /api/backups/:name/restore error:", err);
+    res.status(500).json({ error: "Restore failed — your current library is untouched." });
+  }
+});
+
+/** Restore from an uploaded SQLite file (raw body). Mounted with express.raw in server.ts. */
+apiRouter.post("/backups/restore-file", async (req: Request, res: Response) => {
+  const tmp = path.join(DATA_DIR, `.restore-${process.pid}-${Date.now()}.db`);
+  try {
+    const body = req.body as Buffer | undefined;
+    if (!body || !Buffer.isBuffer(body) || body.length < 100) {
+      return res.status(400).json({ error: "Upload a valid GameTrack database file." });
+    }
+    fs.writeFileSync(tmp, body, { mode: 0o600 });
+    await restoreBackupFile(tmp);
+    res.json({ success: true, games: stmts.getAllGames.all().map(parseGame) });
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 409 || status === 422) return res.status(status).json({ error: (err as Error).message });
+    console.error("POST /api/backups/restore-file error:", err);
+    res.status(500).json({ error: "Restore failed — your current library is untouched." });
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+});
+
+// ── DUPLICATES ──────────────────────────────────────────────────────
+// Suspected duplicate library rows (same external id or same normalized
+// title) with a merge action that folds the loser into the keeper.
+
+const EDITION_SUFFIX_RE = /\s*[(\[][^)\]]*(goty|game of the year|definitive|remastered|remake|director'?s cut|enhanced|complete|ultimate|deluxe|anniversary|special|collector'?s|legendary|premium|classic)[^)\]]*[)\]]\s*$/i;
+
+function duplicateKey(title: string): string {
+  return title.toLowerCase().replace(EDITION_SUFFIX_RE, "").replace(/[^a-z0-9]+/g, "");
+}
+
+// GET /api/duplicates
+apiRouter.get("/duplicates", (_req: Request, res: Response) => {
+  try {
+    const rows = db.prepare("SELECT id, title, year, igdb_id, steam_appid, status, playtime FROM games").all() as {
+      id: number; title: string; year: number | null; igdb_id: number | null; steam_appid: number | null; status: string; playtime: number;
+    }[];
+    const groups = new Map<string, { reason: string; games: typeof rows }>();
+    const push = (key: string, reason: string, row: (typeof rows)[number]) => {
+      const g = groups.get(key) || { reason, games: [] };
+      g.games.push(row);
+      groups.set(key, g);
+    };
+    for (const row of rows) {
+      if (row.igdb_id != null) push(`igdb:${row.igdb_id}`, "Same IGDB entry", row);
+      if (row.steam_appid != null) push(`steam:${row.steam_appid}`, "Same Steam app", row);
+      const key = duplicateKey(row.title || "");
+      if (key) push(`title:${key}`, "Matching titles", row);
+    }
+    const result = [...groups.entries()]
+      .filter(([, g]) => new Set(g.games.map((r) => r.id)).size > 1)
+      .map(([key, g]) => {
+        const seen = new Set<number>();
+        const games = g.games.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)));
+        return {
+          key,
+          reason: g.reason,
+          games: games
+            .sort((a, b) => a.id - b.id)
+            .map((r) => ({ id: r.id, title: r.title, year: r.year, status: r.status, playtime: r.playtime })),
+        };
+      });
+    const seenGroups = new Set<string>();
+    res.json(result.filter((g) => {
+      const idKey = g.games.map((x) => x.id).join(",");
+      if (seenGroups.has(idKey)) return false;
+      seenGroups.add(idKey);
+      return true;
+    }));
+  } catch (err) {
+    console.error("GET /api/duplicates error:", err);
+    res.status(500).json({ error: "Failed to scan for duplicates" });
+  }
+});
+
+const MergeSchema = z.object({ keepId: z.number().int().positive(), removeId: z.number().int().positive() });
+
+// POST /api/duplicates/merge { keepId, removeId } — fold loser into keeper.
+apiRouter.post("/duplicates/merge", (req: Request, res: Response) => {
+  try {
+    const parsed = MergeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "keepId and removeId are required" });
+    const { keepId, removeId } = parsed.data;
+    if (keepId === removeId) return res.status(400).json({ error: "Cannot merge a game into itself" });
+
+    const keep = stmts.getGameById.get(keepId) as GameRow | undefined;
+    const remove = stmts.getGameById.get(removeId) as GameRow | undefined;
+    if (!keep || !remove) return res.status(404).json({ error: "One of the games was not found" });
+
+    const union = (a: string, b: string): string[] => {
+      const out = [...safeJsonParse<string[]>(a, [])];
+      for (const v of safeJsonParse<string[]>(b, [])) if (!out.includes(v)) out.push(v);
+      return out;
+    };
+    const merge = db.transaction(() => {
+      stmts.updateGame.run({
+        title: keep.title,
+        year: keep.year ?? remove.year,
+        igdb_id: keep.igdb_id ?? remove.igdb_id,
+        genres: JSON.stringify(union(keep.genres, remove.genres)),
+        synopsis: (keep.synopsis || "").length >= (remove.synopsis || "").length ? keep.synopsis : remove.synopsis,
+        poster_url: (keep.poster_url || "").startsWith("/posters/")
+          ? keep.poster_url
+          : (remove.poster_url || "").startsWith("/posters/")
+            ? remove.poster_url
+            : (keep.poster_url || remove.poster_url),
+        critic_score: keep.critic_score ?? remove.critic_score,
+        owned_platforms: JSON.stringify(union(keep.owned_platforms, remove.owned_platforms)),
+        status: keep.status,
+        playtime: Math.max(keep.playtime || 0, remove.playtime || 0),
+        personal_rating: keep.personal_rating ?? remove.personal_rating,
+        date_added: Math.min(keep.date_added, remove.date_added),
+        date_completed: keep.date_completed ?? remove.date_completed,
+        hide_playtime: keep.hide_playtime || remove.hide_playtime,
+        steam_appid: keep.steam_appid ?? remove.steam_appid,
+        custom_order: keep.custom_order ?? remove.custom_order,
+        metadata_custom: keep.metadata_custom || remove.metadata_custom,
+        updated_at: Date.now(),
+        id: keepId,
+      });
+      // Move the loser's sessions + shelf memberships onto the keeper first.
+      db.prepare("UPDATE OR IGNORE playtime_entries SET game_id = ? WHERE game_id = ?").run(keepId, removeId);
+      db.prepare("DELETE FROM playtime_entries WHERE game_id = ?").run(removeId);
+      db.prepare("UPDATE OR IGNORE collection_games SET game_id = ? WHERE game_id = ?").run(keepId, removeId);
+      db.prepare("DELETE FROM collection_games WHERE game_id = ?").run(removeId);
+      stmts.deleteGame.run(removeId);
+    });
+    merge();
+    res.json(parseGame(stmts.getGameById.get(keepId)));
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      return res.status(409).json({ error: "Merge would collide with another game using the same external ID." });
+    }
+    console.error("POST /api/duplicates/merge error:", err);
+    res.status(500).json({ error: "Merge failed" });
+  }
+});
+
+// ── STORAGE ─────────────────────────────────────────────────────────
+// Local footprint: database, posters, backups — plus maintenance actions.
+
+function dirSize(dir: string): { files: number; bytes: number } {
+  let files = 0;
+  let bytes = 0;
+  if (!fs.existsSync(dir)) return { files, bytes };
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    try {
+      bytes += fs.statSync(path.join(dir, entry.name)).size;
+      files++;
+    } catch {
+      /* raced deletion — ignore */
+    }
+  }
+  return { files, bytes };
+}
+
+// GET /api/storage
+apiRouter.get("/storage", (_req: Request, res: Response) => {
+  try {
+    const sizeOf = (p: string) => { try { return fs.statSync(p).size; } catch { return 0; } };
+    const posters = dirSize(POSTERS_DIR);
+    const backups = dirSize(BACKUP_DIR);
+    res.json({
+      dbSize: sizeOf(path.join(DATA_DIR, "gametrack.db")),
+      walSize: sizeOf(path.join(DATA_DIR, "gametrack.db-wal")),
+      gameCount: (db.prepare("SELECT COUNT(*) AS n FROM games").get() as { n: number }).n,
+      posterCount: posters.files,
+      posterSize: posters.bytes,
+      backupCount: backups.files,
+      backupSize: backups.bytes,
+    });
+  } catch (err) {
+    console.error("GET /api/storage error:", err);
+    res.status(500).json({ error: "Failed to read storage stats" });
+  }
+});
+
+// POST /api/storage/checkpoint — fold the WAL back into the database file.
+apiRouter.post("/storage/checkpoint", (_req: Request, res: Response) => {
+  try {
+    db.pragma("wal_checkpoint(TRUNCATE)");
+    res.json({ success: true });
+  } catch (err) {
+    console.error("POST /api/storage/checkpoint error:", err);
+    res.status(500).json({ error: "Checkpoint failed" });
+  }
+});
+
+// POST /api/storage/clean-posters — delete poster files no game references.
+apiRouter.post("/storage/clean-posters", (_req: Request, res: Response) => {
+  try {
+    const used = new Set<string>();
+    for (const row of stmts.getAllGames.all() as { poster_url: string }[]) {
+      if (row.poster_url.startsWith("/posters/")) used.add(path.basename(row.poster_url));
+    }
+    for (const row of stmts.getAllWishlist.all() as { poster_url: string }[]) {
+      if (row.poster_url.startsWith("/posters/")) used.add(path.basename(row.poster_url));
+    }
+    let removed = 0;
+    let freedBytes = 0;
+    if (fs.existsSync(POSTERS_DIR)) {
+      for (const entry of fs.readdirSync(POSTERS_DIR, { withFileTypes: true })) {
+        if (!entry.isFile() || used.has(entry.name)) continue;
+        try {
+          const full = path.join(POSTERS_DIR, entry.name);
+          freedBytes += fs.statSync(full).size;
+          fs.rmSync(full, { force: true });
+          removed++;
+        } catch {
+          /* raced deletion — ignore */
+        }
+      }
+    }
+    res.json({ success: true, removed, freedBytes });
+  } catch (err) {
+    console.error("POST /api/storage/clean-posters error:", err);
+    res.status(500).json({ error: "Poster cleanup failed" });
   }
 });

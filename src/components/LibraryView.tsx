@@ -17,15 +17,21 @@ export const LibraryView: React.FC = () => {
     setSelectedGame, setAddGameOpen, updateCustomOrder, clearCustomOrder,
     customizations, wishlist, setActiveTab, customPlatforms, gamesError,
     deleteGames,
+    collections, fetchCollections, createCollection, renameCollection, deleteCollection, addGamesToCollection,
+    searchFocusToken,
   } = useGameTrackStore(useShallow(s => ({
-    games: s.games, loadingGames: s.loadingGames, filters: s.filters, 
-    setFilter: s.setFilter, resetFilters: s.resetFilters, fetchGames: s.fetchGames, 
-    setSelectedGame: s.setSelectedGame, setAddGameOpen: s.setAddGameOpen, 
+    games: s.games, loadingGames: s.loadingGames, filters: s.filters,
+    setFilter: s.setFilter, resetFilters: s.resetFilters, fetchGames: s.fetchGames,
+    setSelectedGame: s.setSelectedGame, setAddGameOpen: s.setAddGameOpen,
     updateCustomOrder: s.updateCustomOrder, clearCustomOrder: s.clearCustomOrder,
     customizations: s.customizations,
     wishlist: s.wishlist, setActiveTab: s.setActiveTab, customPlatforms: s.customPlatforms,
     gamesError: s.gamesError,
     deleteGames: s.deleteGames,
+    collections: s.collections, fetchCollections: s.fetchCollections,
+    createCollection: s.createCollection, renameCollection: s.renameCollection,
+    deleteCollection: s.deleteCollection, addGamesToCollection: s.addGamesToCollection,
+    searchFocusToken: s.searchFocusToken,
   })));
 
   const availablePlatforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
@@ -33,6 +39,17 @@ export const LibraryView: React.FC = () => {
   const [localSearch, setLocalSearch] = useState(filters.search);
   const [showFilters, setShowFilters] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [newCollectionName, setNewCollectionName] = useState("");
+  const [renameValue, setRenameValue] = useState("");
+  const [bulkCollectionId, setBulkCollectionId] = useState("");
+
+  useEffect(() => {
+    if (searchFocusToken > 0) searchInputRef.current?.focus();
+  }, [searchFocusToken]);
+
+  useEffect(() => {
+    setRenameValue(collections.find((c) => String(c.id) === filters.collection)?.name || "");
+  }, [filters.collection, collections]);
 
   // Stay in sync when the filter is changed elsewhere (e.g. reset) — but
   // never clobber text the user is actively typing.
@@ -64,7 +81,7 @@ export const LibraryView: React.FC = () => {
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [showFilters, filters.status, filters.platform]);
+  }, [showFilters, filters.status, filters.platform, filters.collection, filters.hideCompleted, filters.hideEndless, collections.length]);
 
   // Only offer statuses/platforms that actually exist in the current library
   const statusOptions = React.useMemo(() => {
@@ -105,17 +122,54 @@ export const LibraryView: React.FC = () => {
     fetchGames();
   }, [fetchGames]);
 
+  useEffect(() => {
+    fetchCollections();
+  }, [fetchCollections]);
+
+  // Drop a collection filter whose shelf was deleted elsewhere.
+  useEffect(() => {
+    if (filters.collection && collections.length > 0 && !collections.some((c) => String(c.id) === filters.collection)) {
+      setFilter("collection", "");
+    }
+  }, [filters.collection, collections, setFilter]);
+
   const handleReset = () => {
     setLocalSearch("");
     resetFilters();
   };
 
-  const activeFiltersCount = React.useMemo(() => (filters.status ? 1 : 0) + (filters.platform ? 1 : 0) + (filters.sort !== "recent" ? 1 : 0), [filters.status, filters.platform, filters.sort]);
+  const activeFiltersCount = React.useMemo(
+    () =>
+      (filters.status ? 1 : 0) +
+      (filters.platform ? 1 : 0) +
+      (filters.sort !== "recent" ? 1 : 0) +
+      (filters.collection ? 1 : 0) +
+      (filters.hideCompleted ? 1 : 0) +
+      (filters.hideEndless ? 1 : 0),
+    [filters.status, filters.platform, filters.sort, filters.collection, filters.hideCompleted, filters.hideEndless]
+  );
+
+  const collectionGameIds = React.useMemo(() => {
+    if (!filters.collection) return null;
+    const found = collections.find((c) => String(c.id) === filters.collection);
+    return found ? new Set(found.game_ids || []) : new Set<number>();
+  }, [filters.collection, collections]);
+
+  const gameCollectionCount = React.useMemo(() => {
+    const map = new Map<number, number>();
+    for (const c of collections) {
+      for (const id of c.game_ids || []) map.set(id, (map.get(id) || 0) + 1);
+    }
+    return map;
+  }, [collections]);
 
   // Client-side search/filter/sort within games loaded
   const filteredGames = React.useMemo(() => {
     const list = games.filter((game) => {
       if (filters.status && game.status !== filters.status) return false;
+      if (filters.hideCompleted && game.status === "completed") return false;
+      if (filters.hideEndless && game.status === "endless") return false;
+      if (collectionGameIds && !collectionGameIds.has(game.id)) return false;
 
       if (filters.platform) {
         const platforms = game.owned_platforms || [];
@@ -464,8 +518,124 @@ export const LibraryView: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* Shelf + visibility row */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-4 mt-3">
+              <div className="relative sm:col-span-2">
+                <label htmlFor="filter-collection" className="block text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted mb-1">Collection</label>
+                <div className="relative">
+                  <select
+                    id="filter-collection"
+                    value={filters.collection}
+                    onChange={(e) => setFilter("collection", e.target.value)}
+                    className="w-full pl-3 pr-10 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
+                  >
+                    <option value="">All Collections</option>
+                    {collections.map((c) => (
+                      <option key={c.id} value={String(c.id)}>
+                        {c.name} ({c.game_count ?? 0})
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-brand-muted">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+                <form
+                  className="flex gap-2 mt-2"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (await createCollection(newCollectionName)) setNewCollectionName("");
+                  }}
+                >
+                  <input
+                    value={newCollectionName}
+                    onChange={(e) => setNewCollectionName(e.target.value)}
+                    placeholder="New collection"
+                    className="flex-1 min-w-0 pl-3 py-2 bg-zinc-950 border border-brand-border text-[11px] font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
+                  />
+                  <button type="submit" className="px-3 py-2 bg-zinc-900 border border-brand-border text-[10px] font-black uppercase tracking-wider text-white cursor-pointer hover:border-brand-accent">
+                    Create
+                  </button>
+                </form>
+              </div>
+
+              <label className="flex items-center gap-2.5 cursor-pointer group pt-0 sm:pt-6">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={filters.hideCompleted}
+                  aria-label="Hide completed games"
+                  onClick={() => setFilter("hideCompleted", !filters.hideCompleted)}
+                  className={`relative w-9 h-5 shrink-0 border transition-colors cursor-pointer ${
+                    filters.hideCompleted ? "bg-brand-accent border-brand-accent" : "bg-zinc-900 border-brand-border"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3 transition-all duration-200 ${
+                      filters.hideCompleted ? "left-[18px] bg-brand-accent-ink" : "left-0.5 bg-brand-muted"
+                    }`}
+                  />
+                </button>
+                <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
+                  Hide Completed
+                </span>
+              </label>
+
+              <label className="flex items-center gap-2.5 cursor-pointer group pt-0 sm:pt-6">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={filters.hideEndless}
+                  aria-label="Hide endless games"
+                  onClick={() => setFilter("hideEndless", !filters.hideEndless)}
+                  className={`relative w-9 h-5 shrink-0 border transition-colors cursor-pointer ${
+                    filters.hideEndless ? "bg-brand-accent border-brand-accent" : "bg-zinc-900 border-brand-border"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3 transition-all duration-200 ${
+                      filters.hideEndless ? "left-[18px] bg-brand-accent-ink" : "left-0.5 bg-brand-muted"
+                    }`}
+                  />
+                </button>
+                <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
+                  Hide Endless
+                </span>
+              </label>
+            </div>
         </div>
       </div>
+
+      {filters.collection && (
+        <div className="flex flex-wrap items-center gap-2 border border-brand-border bg-zinc-950/40 px-3 py-2">
+          <span className="text-[11px] font-mono uppercase tracking-widest text-brand-accent">
+            Collection
+          </span>
+          <input
+            type="text"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onBlur={async () => {
+              const id = Number(filters.collection);
+              const current = collections.find((c) => c.id === id)?.name || "";
+              if (renameValue.trim() && renameValue.trim() !== current) await renameCollection(id, renameValue);
+              setRenameValue("");
+            }}
+            className="flex-1 min-w-[8rem] bg-transparent border-b border-brand-border text-xs font-mono uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              if (!window.confirm("Delete this collection? Games stay in the library.")) return;
+              await deleteCollection(Number(filters.collection));
+            }}
+            className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider border border-brand-border text-brand-muted hover:text-red-400 hover:border-red-500/40 cursor-pointer"
+          >
+            Delete shelf
+          </button>
+        </div>
+      )}
 
       {/* Custom Order hint bar */}
       {isCustomOrder && (
@@ -539,6 +709,30 @@ export const LibraryView: React.FC = () => {
                 </button>
               </div>
             ) : (
+              <div className="flex items-center gap-2 flex-wrap">
+                {collections.length > 0 && (
+                  <select
+                    value={bulkCollectionId}
+                    onChange={(e) => setBulkCollectionId(e.target.value)}
+                    className="pl-3 pr-8 py-2 bg-zinc-900 border border-brand-border text-[11px] font-black uppercase tracking-wider text-white appearance-none cursor-pointer"
+                  >
+                    <option value="">Add to collection…</option>
+                    {collections.map((c) => (
+                      <option key={c.id} value={String(c.id)}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  type="button"
+                  disabled={selectedIds.size === 0 || !bulkCollectionId}
+                  onClick={async () => {
+                    await addGamesToCollection(Number(bulkCollectionId), [...selectedIds]);
+                    setBulkCollectionId("");
+                  }}
+                  className="px-3 py-2 bg-zinc-900 border border-brand-border text-xs font-black uppercase tracking-wider text-brand-muted disabled:opacity-40 hover:text-white cursor-pointer"
+                >
+                  Add
+                </button>
               <button
                 type="button"
                 disabled={selectedIds.size === 0}
@@ -548,6 +742,7 @@ export const LibraryView: React.FC = () => {
                 <Trash2 className="w-4 h-4 text-red-400" />
                 <span>Delete ({selectedIds.size})</span>
               </button>
+              </div>
             )}
 
             <button
@@ -564,7 +759,7 @@ export const LibraryView: React.FC = () => {
 
       {/* Grid View */}
       {loadingGames ? (
-        <div className={`grid ${libraryGridClass(customizations.libraryColumns)} gap-4 animate-pulse`}>
+        <div className={`grid ${libraryGridClass(customizations.libraryColumns)} ${customizations.density === "compact" ? "gap-2" : "gap-4"} animate-pulse`}>
           {[...Array(10)].map((_, i) => (
             <div key={i} className="aspect-[2/3] bg-zinc-900/50 border border-brand-border rounded-none" />
           ))}
@@ -600,7 +795,7 @@ export const LibraryView: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div className={`grid ${libraryGridClass(customizations.libraryColumns)} gap-4`}>
+        <div className={`grid ${libraryGridClass(customizations.libraryColumns)} ${customizations.density === "compact" ? "gap-2" : "gap-4"}`}>
           {visibleList.map((game) => (
             <LibraryGameCard
               key={game.id}
@@ -613,6 +808,8 @@ export const LibraryView: React.FC = () => {
               onDragEnd={handleDragEnd}
               showPlaytime={customizations.showPlaytimeBadge}
               showRating={customizations.showRatingBadge}
+              density={customizations.density}
+              inCollections={(gameCollectionCount.get(game.id) || 0) > 0}
               selectMode={selectMode}
               selected={selectedIds.has(game.id)}
               onToggleSelect={toggleSelect}
@@ -643,6 +840,8 @@ interface LibraryGameCardProps {
   onDragEnd?: () => void;
   showPlaytime?: boolean;
   showRating?: boolean;
+  density?: "comfortable" | "compact";
+  inCollections?: boolean;
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
@@ -650,6 +849,7 @@ interface LibraryGameCardProps {
 
 const LibraryGameCard = React.memo<LibraryGameCardProps>(({ 
   game, onClick, reorderable, isDragging, onDragStart, onDragOverCard, onDragEnd, showPlaytime = true, showRating = true,
+  density = "comfortable", inCollections = false,
   selectMode = false, selected = false, onToggleSelect 
 }) => {
   const handleCardClick = () => {
@@ -710,7 +910,7 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
               role="img"
               aria-label={`Status: ${getStatusLabel(game.status)}`}
               title={getStatusLabel(game.status)}
-              className={`absolute top-2.5 left-2.5 p-1.5 z-10 shadow-lg border ${getStatusMarkerColor(game.status)}`}
+              className={`absolute top-2.5 left-2.5 ${density === "compact" ? "p-1" : "p-1.5"} z-10 shadow-lg border ${getStatusMarkerColor(game.status)}`}
             >
               <StatusIcon className="w-3.5 h-3.5 stroke-[2.5]" />
             </div>
@@ -724,22 +924,23 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
 
         {/* Score Floating Badge */}
         {showRating && game.critic_score != null && (
-          <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-mono font-black text-brand-accent border border-brand-border z-10 shadow-sm">
+          <div className={`absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm ${density === "compact" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-[11px]"} font-mono font-black text-brand-accent border border-brand-border z-10 shadow-sm`}>
             {game.critic_score}
           </div>
         )}
       </div>
 
       {/* Game Metadata Info */}
-      <div className="p-4 flex-1 flex flex-col justify-between">
+      <div className={`${density === "compact" ? "p-2" : "p-4"} flex-1 flex flex-col justify-between`}>
         <div>
-          <h4 className={`font-bold text-sm transition-colors line-clamp-1 uppercase tracking-tight ${game.status === "completed" ? "text-brand-accent" : "text-white group-hover:text-brand-accent"}`}>
+          <h4 className={`font-bold ${density === "compact" ? "text-xs" : "text-sm"} transition-colors line-clamp-1 uppercase tracking-tight ${game.status === "completed" ? "text-brand-accent" : "text-white group-hover:text-brand-accent"}`}>
             {game.title}
           </h4>
           {/* Launch year on the left, time played on the right */}
-          <div className="border-t border-brand-border mt-2 pt-2 flex items-center justify-between gap-2">
+          <div className={`border-t border-brand-border ${density === "compact" ? "mt-1 pt-1" : "mt-2 pt-2"} flex items-center justify-between gap-2`}>
             <p className="text-[11px] text-brand-muted font-mono uppercase font-bold">
               {game.year ?? "—"}
+              {inCollections ? " · SHELF" : ""}
             </p>
             {showPlaytime && (
               game.hide_playtime === 1 ? (

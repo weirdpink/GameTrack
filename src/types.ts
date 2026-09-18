@@ -101,6 +101,57 @@ export interface CustomizationSettings {
   discoverColumns: number; // 3, 4, 5, 6, 7
   showPlaytimeBadge: boolean;
   showRatingBadge: boolean;
+  density: "comfortable" | "compact";
+  weeklyGoalHours: number; // 0 = goal disabled
+}
+
+export interface Collection {
+  id: number;
+  name: string;
+  created_at: number;
+  game_count?: number;
+  game_ids?: number[];
+}
+
+export interface PlaytimeEntry {
+  id: number;
+  game_id: number;
+  hours: number;
+  logged_at: number;
+}
+
+export interface WeeklyStats {
+  weekStart: number;
+  loggedHours: number;
+  entryCount: number;
+  weeks?: { weekStart: number; loggedHours: number }[];
+}
+
+export interface BackupInfo {
+  name: string;
+  created_at: number;
+  size: number;
+}
+
+export interface DuplicateGroup {
+  key: string;
+  reason: string;
+  games: { id: number; title: string; year: number | null; status: string; playtime: number }[];
+}
+
+export interface StorageStats {
+  dbSize: number;
+  walSize: number;
+  gameCount: number;
+  posterCount: number;
+  posterSize: number;
+  backupCount: number;
+  backupSize: number;
+}
+
+export interface BackupSettings {
+  enabled: boolean;
+  keep: number;
 }
 
 export interface PlayingConflict {

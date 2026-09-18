@@ -506,6 +506,61 @@ export const SettingsModal: React.FC = React.memo(() => {
                     </div>
                   </div>
 
+                  {/* Display Density + Weekly Goal */}
+                  <div className="pt-2 border-t border-brand-border/40 space-y-2.5">
+                    <label className="flex items-center justify-between group">
+                      <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
+                        Card Density
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={customizations.density === "comfortable"}
+                          onClick={() => updateCustomizations({ density: "comfortable" })}
+                          className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-colors cursor-pointer ${
+                            customizations.density === "comfortable"
+                              ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
+                              : "bg-zinc-900 border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
+                          }`}
+                        >
+                          Comfortable
+                        </button>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={customizations.density === "compact"}
+                          onClick={() => updateCustomizations({ density: "compact" })}
+                          className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-colors cursor-pointer ${
+                            customizations.density === "compact"
+                              ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
+                              : "bg-zinc-900 border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
+                          }`}
+                        >
+                          Compact
+                        </button>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center justify-between group">
+                      <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
+                        Weekly Playtime Goal (hours)
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="168"
+                        step="1"
+                        value={customizations.weeklyGoalHours}
+                        onChange={(e) => {
+                          const v = Math.min(168, Math.max(0, parseInt(e.target.value) || 0));
+                          updateCustomizations({ weeklyGoalHours: v });
+                        }}
+                        className="w-16 px-2 py-1 bg-zinc-950 border border-brand-border text-xs font-mono uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent"
+                      />
+                    </label>
+                  </div>
+
                 </div>
               </div>
 

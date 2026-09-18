@@ -26,6 +26,7 @@ export default function App() {
     steamSettings, setSettingsOpen, fetchSteamSettings,
     fetchWishlist, fetchCustomPlatforms,
     loadingGames,
+    fetchCollections, fetchWeeklyStats,
   } = useGameTrackStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pathname] = useState(() => window.location.pathname);
@@ -60,6 +61,8 @@ export default function App() {
     fetchAnalytics();
     fetchWishlist();
     fetchCustomPlatforms();
+    fetchCollections();
+    fetchWeeklyStats();
     if (s.trendingGames.length === 0 || Date.now() - s.lastTrendingFetch > 300_000) fetchTrending();
     if (!s.discoverLists || Date.now() - s.lastListsFetch > 300_000) fetchDiscoverLists();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,6 +86,52 @@ export default function App() {
     }
     setEntered(false);
   };
+
+  useEffect(() => {
+    if (!entered) return;
+    let chord: string | null = null;
+    let chordTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const typing = (el: EventTarget | null) => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const store = useGameTrackStore.getState();
+      if (e.key === "/" && !typing(e.target)) {
+        e.preventDefault();
+        store.setActiveTab("library");
+        store.requestSearchFocus();
+        return;
+      }
+      if (e.key === "Escape" && !store.selectedGame && !store.isSettingsOpen && !store.isAddGameOpen && !store.isAuthOpen && !store.playingConflict) {
+        setMobileMenuOpen(false);
+        return;
+      }
+      if (typing(e.target)) return;
+      const key = e.key.toLowerCase();
+      if (chord === "g") {
+        if (chordTimer) clearTimeout(chordTimer);
+        chord = null;
+        if (key === "l") store.setActiveTab("library");
+        if (key === "d") store.setActiveTab("dashboard");
+        return;
+      }
+      if (key === "g") {
+        chord = "g";
+        chordTimer = setTimeout(() => { chord = null; }, 800);
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (chordTimer) clearTimeout(chordTimer);
+    };
+  }, [entered]);
 
 const tabs = [
     { id: "dashboard", num: "00", label: "CENTRAL" },
