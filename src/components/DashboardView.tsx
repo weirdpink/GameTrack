@@ -51,53 +51,12 @@ const StatCard = React.memo(({ title, value, subtext }: StatCardProps) => {
   );
 });
 
-/** Weekly playtime goal strip — progress toward this week's logged hours. */
-const WeeklyGoalStrip = React.memo(({ goalHours, loggedHours, entryCount }: {
-  goalHours: number; loggedHours: number; entryCount: number;
-}) => {
-  const pct = Math.min(100, goalHours > 0 ? Math.round((loggedHours / goalHours) * 100) : 0);
-  const done = loggedHours >= goalHours;
-  return (
-    <div className="border border-brand-border bg-transparent p-6 rounded-none">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-xs font-bold uppercase tracking-widest text-brand-muted font-mono">
-          Weekly Playtime Goal
-        </p>
-        <p className="font-sans tracking-tighter leading-none">
-          <span className={`text-3xl font-black ${done ? "text-brand-accent" : "text-white"}`}>
-            {formatPlaytimePrecise(loggedHours)}
-          </span>
-          <span className="text-lg font-black text-brand-muted"> / {formatPlaytimePrecise(goalHours)}</span>
-        </p>
-      </div>
-      <div
-        className="mt-4 h-2 bg-zinc-900 border border-brand-border/60"
-        role="progressbar"
-        aria-valuenow={pct}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={`Weekly playtime goal: ${pct}% reached`}
-      >
-        <div
-          className={`h-full transition-all duration-500 ${done ? "bg-brand-accent" : "bg-emerald-500"}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <p className="mt-2 text-[11px] font-mono uppercase tracking-widest text-brand-muted">
-        {done ? "Target reached" : `${entryCount} session${entryCount === 1 ? "" : "s"} this week · 0h weeks stay at 0 until you log playtime`}
-      </p>
-    </div>
-  );
-});
-WeeklyGoalStrip.displayName = "WeeklyGoalStrip";
-
 const formatStatus = (status: string) => getStatusLabel(status).toUpperCase();
 
 export const DashboardView: React.FC = React.memo(() => {
   const {
     games, loadingGames, summary, suggestions, recentActivity, loadingAnalytics, fetchAnalytics,
-    fetchSuggestions, setSelectedGame, lastAnalyticsFetch, customPlatforms, customizations,
-    weeklyStats, fetchWeeklyStats
+    fetchSuggestions, setSelectedGame, lastAnalyticsFetch, customPlatforms, customizations
   } = useGameTrackStore(useShallow(s => ({
     games: s.games, loadingGames: s.loadingGames, summary: s.summary,
     suggestions: s.suggestions, recentActivity: s.recentActivity,
@@ -106,8 +65,7 @@ export const DashboardView: React.FC = React.memo(() => {
     setSelectedGame: s.setSelectedGame,
     lastAnalyticsFetch: s.lastAnalyticsFetch,
     customPlatforms: s.customPlatforms,
-    customizations: s.customizations,
-    weeklyStats: s.weeklyStats, fetchWeeklyStats: s.fetchWeeklyStats
+    customizations: s.customizations
   })));
 
   const platforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
@@ -122,10 +80,6 @@ export const DashboardView: React.FC = React.memo(() => {
     if (!summary || Date.now() - lastAnalyticsFetch > 60_000) fetchAnalytics();
   }, [fetchAnalytics, summary, lastAnalyticsFetch]);
 
-  useEffect(() => {
-    fetchWeeklyStats();
-  }, [fetchWeeklyStats, games]);
-
   const activeGames = React.useMemo(() => games.filter(g => g.status === "playing"), [games]);
 
   return (
@@ -137,8 +91,8 @@ export const DashboardView: React.FC = React.memo(() => {
           <h1 className="text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none">
             TOTAL<br />CENTRAL
           </h1>
-          <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
-            Your definitive personal gaming registry. Track, organize, and analyze your entire video game collection with precision.
+          <p className="max-w-none text-brand-muted text-sm sm:text-base font-medium leading-relaxed lg:whitespace-nowrap">
+            Your personal gaming registry. Track, organize, and analyze your collection.
           </p>
         </div>
       </div>
@@ -173,15 +127,6 @@ export const DashboardView: React.FC = React.memo(() => {
             subtext={`avg ${formatPlaytime(summary?.average_playtime_per_game).toLowerCase()} per title`}
           />
         </div>
-      )}
-
-      {/* Weekly playtime goal — sessions you log count toward it */}
-      {customizations.weeklyGoalHours > 0 && (
-        <WeeklyGoalStrip
-          goalHours={customizations.weeklyGoalHours}
-          loggedHours={weeklyStats?.loggedHours ?? 0}
-          entryCount={weeklyStats?.entryCount ?? 0}
-        />
       )}
 
 

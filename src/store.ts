@@ -3,7 +3,7 @@ import {
   Game, LibrarySummary,
   GenreAnalytics, NextToPlaySuggestion,
   IGDBGame, SteamSettings, DiscoverLists, CustomizationSettings, WishlistItem, ManualWishlistEntry,
-  PlayingConflict,   Collection, WeeklyStats, PlaytimeEntry, BackupInfo, DuplicateGroup, StorageStats, BackupSettings
+  PlayingConflict, WeeklyStats, PlaytimeEntry, BackupInfo, DuplicateGroup, StorageStats, BackupSettings
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
 import { Platform, slugifyPlatformLabel, mergeCustomPlatforms } from "./constants";
@@ -108,8 +108,8 @@ interface GameTrackState {
   loadingGames: boolean;
   lastGamesFetch: number;
   gamesError: string | null;
-  filters: { status: string; platform: string; sort: string; search: string; hideCompleted: boolean; hideEndless: boolean; collection: string };
-  setFilter: (key: "status" | "platform" | "sort" | "search" | "hideCompleted" | "hideEndless" | "collection", value: string | boolean) => void;
+  filters: { status: string; platform: string; sort: string; search: string; hideCompleted: boolean; hideEndless: boolean };
+  setFilter: (key: "status" | "platform" | "sort" | "search" | "hideCompleted" | "hideEndless", value: string | boolean) => void;
   resetFilters: () => void;
   fetchGames: (force?: boolean) => Promise<void>;
   addGame: (gameData: Partial<Game>) => Promise<boolean>;
@@ -181,15 +181,6 @@ interface GameTrackState {
   removeCustomPlatform: (id: string) => Promise<boolean>;
   _saveCustomPlatforms: (platforms: Platform[]) => Promise<boolean>;
 
-  collections: Collection[];
-  fetchCollections: () => Promise<void>;
-  createCollection: (name: string) => Promise<boolean>;
-  renameCollection: (id: number, name: string) => Promise<boolean>;
-  deleteCollection: (id: number) => Promise<boolean>;
-  addGameToCollection: (collectionId: number, gameId: number) => Promise<boolean>;
-  addGamesToCollection: (collectionId: number, gameIds: number[]) => Promise<boolean>;
-  removeGameFromCollection: (collectionId: number, gameId: number) => Promise<boolean>;
-
   weeklyStats: WeeklyStats | null;
   fetchWeeklyStats: () => Promise<void>;
 
@@ -226,6 +217,7 @@ interface GameTrackState {
   setAuthOpen: (open: boolean) => void;
 
   customizations: CustomizationSettings;
+  fetchCustomizations: () => Promise<void>;
   updateCustomizations: (partial: Partial<CustomizationSettings>) => void;
 }
 
@@ -240,7 +232,7 @@ function getInitialTab(): GameTrackState["activeTab"] {
 }
 
 const FILTERS_KEY = "gametrack_library_filters";
-const DEFAULT_FILTERS = { status: "", platform: "", sort: "recent", search: "", hideCompleted: false, hideEndless: false, collection: "" };
+const DEFAULT_FILTERS = { status: "", platform: "", sort: "recent", search: "", hideCompleted: false, hideEndless: false };
 
 function loadSavedFilters(): GameTrackState["filters"] {
   try {
@@ -252,7 +244,6 @@ function loadSavedFilters(): GameTrackState["filters"] {
       search: typeof parsed.search === "string" ? parsed.search : DEFAULT_FILTERS.search,
       hideCompleted: parsed.hideCompleted === true,
       hideEndless: parsed.hideEndless === true,
-      collection: typeof parsed.collection === "string" ? parsed.collection : DEFAULT_FILTERS.collection,
     };
   } catch {
     return DEFAULT_FILTERS;
@@ -267,13 +258,11 @@ const DEFAULT_CUSTOMIZATIONS: CustomizationSettings = {
   showPlaytimeBadge: true,
   showRatingBadge: true,
   density: "comfortable",
-  weeklyGoalHours: 5,
 };
 
 function loadSavedCustomizations(): CustomizationSettings {
   try {
     const parsed = JSON.parse(localStorage.getItem(CUSTOMIZATIONS_KEY) || "");
-    const goal = Number(parsed.weeklyGoalHours);
     return {
       theme: isThemeId(parsed.theme) ? parsed.theme : DEFAULT_CUSTOMIZATIONS.theme,
       libraryColumns: [3, 4, 5, 6, 7].includes(parsed.libraryColumns) ? parsed.libraryColumns : 5,
@@ -281,7 +270,6 @@ function loadSavedCustomizations(): CustomizationSettings {
       showPlaytimeBadge: typeof parsed.showPlaytimeBadge === "boolean" ? parsed.showPlaytimeBadge : true,
       showRatingBadge: typeof parsed.showRatingBadge === "boolean" ? parsed.showRatingBadge : true,
       density: parsed.density === "compact" ? "compact" : "comfortable",
-      weeklyGoalHours: Number.isFinite(goal) ? Math.min(168, Math.max(0, Math.round(goal))) : 5,
     };
   } catch {
     return DEFAULT_CUSTOMIZATIONS;
@@ -392,6 +380,23 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   closePlayingConflict: () => set({ playingConflict: null }),
 
   customizations: initialCustomizations,
+  fetchCustomizations: async () => {
+    try {
+      const res = await fetch("/api/settings/customizations");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data || typeof data !== "object") return;
+      const next = {
+        ...get().customizations,
+        ...data,
+      } as CustomizationSettings;
+      localStorage.setItem(CUSTOMIZATIONS_KEY, JSON.stringify(next));
+      set({ customizations: next });
+      if (isThemeId(next.theme)) applyTheme(next.theme);
+    } catch (err) {
+      console.error("Failed to fetch customization settings:", err);
+    }
+  },
   updateCustomizations: (partial) => {
     const next = { ...get().customizations, ...partial };
     localStorage.setItem(CUSTOMIZATIONS_KEY, JSON.stringify(next));
@@ -399,6 +404,11 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     if (partial.theme && isThemeId(partial.theme)) {
       applyThemeWithReboot(partial.theme);
     }
+    void fetch("/api/settings/customizations", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(next),
+    }).catch((err) => console.error("Failed to persist customization settings:", err));
   },
 
   games: [],
@@ -1087,7 +1097,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       const res = await fetch("/api/wipe", { method: "DELETE" });
       if (!res.ok) throw new Error("Wipe failed");
 
-      set({ games: [], selectedGame: null, suggestions: [], collections: [] });
+      set({ games: [], selectedGame: null, suggestions: [] });
       get().showToast("Library wiped", "success", "All local data cleared");
       get().fetchAnalytics();
       return true;
@@ -1292,121 +1302,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     return ok;
   },
 
-  // ── Collections ──────────────────────────────────────────────
-  collections: [],
-  fetchCollections: async () => {
-    try {
-      const res = await fetch("/api/collections");
-      if (!res.ok) return;
-      const data = await res.json();
-      if (Array.isArray(data)) set({ collections: data });
-    } catch (err) {
-      console.error("Failed to fetch collections:", err);
-    }
-  },
-  createCollection: async (name) => {
-    const trimmed = name.trim().slice(0, 80);
-    if (!trimmed) {
-      get().showToast("Collection name is required", "error");
-      return false;
-    }
-    try {
-      const res = await fetch("/api/collections", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
-      });
-      if (res.status === 409) throw new Error("A collection with that name already exists");
-      if (!res.ok) throw new Error("Failed to create collection");
-      await get().fetchCollections();
-      get().showToast("Collection created", "success", trimmed);
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error creating collection", "error");
-      return false;
-    }
-  },
-  renameCollection: async (id, name) => {
-    const trimmed = name.trim().slice(0, 80);
-    if (!trimmed) {
-      get().showToast("Collection name is required", "error");
-      return false;
-    }
-    try {
-      const res = await fetch(`/api/collections/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
-      });
-      if (res.status === 409) throw new Error("A collection with that name already exists");
-      if (!res.ok) throw new Error("Failed to rename collection");
-      await get().fetchCollections();
-      get().showToast("Collection renamed", "success", trimmed);
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error renaming collection", "error");
-      return false;
-    }
-  },
-  deleteCollection: async (id) => {
-    try {
-      const res = await fetch(`/api/collections/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete collection");
-      set((state) => ({ collections: state.collections.filter((c) => c.id !== id) }));
-      // A library view filtered to the deleted shelf would go blank — reset it.
-      if (get().filters.collection === String(id)) get().setFilter("collection", "");
-      get().showToast("Collection deleted", "info");
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error deleting collection", "error");
-      return false;
-    }
-  },
-  addGameToCollection: async (collectionId, gameId) => {
-    try {
-      const res = await fetch(`/api/collections/${collectionId}/games`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameId }),
-      });
-      if (!res.ok) throw new Error("Failed to add to collection");
-      await get().fetchCollections();
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error updating collection", "error");
-      return false;
-    }
-  },
-  addGamesToCollection: async (collectionId, gameIds) => {
-    if (!gameIds.length) return false;
-    try {
-      const res = await fetch(`/api/collections/${collectionId}/games/bulk`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameIds }),
-      });
-      if (!res.ok) throw new Error("Failed to add to collection");
-      await get().fetchCollections();
-      get().showToast("Added to collection", "success");
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error updating collection", "error");
-      return false;
-    }
-  },
-  removeGameFromCollection: async (collectionId, gameId) => {
-    try {
-      const res = await fetch(`/api/collections/${collectionId}/games/${gameId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to remove from collection");
-      await get().fetchCollections();
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error updating collection", "error");
-      return false;
-    }
-  },
-
-  // ── Weekly goal + playtime history ───────────────────────────
+  // ── Playtime history ────────────────────────────────────────
   weeklyStats: null,
   fetchWeeklyStats: async () => {
     try {
@@ -1504,7 +1400,6 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       }
       // Library identity changed wholesale — refresh everything from scratch.
       await get().fetchGames(true);
-      await get().fetchCollections();
       await get().fetchAnalytics();
       await get().fetchWishlist(true);
       await get().fetchWeeklyStats();
@@ -1547,7 +1442,6 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         throw new Error(data?.error || "Restore failed");
       }
       await get().fetchGames(true);
-      await get().fetchCollections();
       await get().fetchAnalytics();
       await get().fetchWishlist(true);
       await get().fetchWeeklyStats();
@@ -1562,7 +1456,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   exportLibraryMarkdown: () => {
     try {
       const stamp = new Date().toISOString().slice(0, 10);
-      downloadTextFile(`gametrack-library-${stamp}.md`, gamesToMarkdown(get().games, get().collections), "text/markdown;charset=utf-8");
+      downloadTextFile(`gametrack-library-${stamp}.md`, gamesToMarkdown(get().games), "text/markdown;charset=utf-8");
       get().showToast("Markdown exported", "success");
       return true;
     } catch (err: unknown) {
@@ -1573,7 +1467,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   exportLibraryCsv: () => {
     try {
       const stamp = new Date().toISOString().slice(0, 10);
-      downloadTextFile(`gametrack-library-${stamp}.csv`, gamesToCsv(get().games, get().collections), "text/csv;charset=utf-8");
+      downloadTextFile(`gametrack-library-${stamp}.csv`, gamesToCsv(get().games), "text/csv;charset=utf-8");
       get().showToast("CSV exported", "success");
       return true;
     } catch (err: unknown) {
@@ -1610,7 +1504,6 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       }
       await get().fetchGames(true);
       await get().fetchDuplicates();
-      await get().fetchCollections();
       get().showToast("Games merged", "success");
       return true;
     } catch (err: unknown) {

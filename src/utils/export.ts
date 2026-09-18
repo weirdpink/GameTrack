@@ -1,4 +1,4 @@
-import type { Collection, Game } from "../types";
+import type { Game } from "../types";
 import { formatPlaytimePrecise } from "./time";
 
 export function csvEscape(value: string): string {
@@ -6,19 +6,7 @@ export function csvEscape(value: string): string {
   return value;
 }
 
-function collectionNamesByGame(collections: Collection[]): Map<number, string[]> {
-  const map = new Map<number, string[]>();
-  for (const c of collections) {
-    for (const id of c.game_ids || []) {
-      const list = map.get(id) || [];
-      list.push(c.name);
-      map.set(id, list);
-    }
-  }
-  return map;
-}
-
-function rowFields(game: Game, names: string[]) {
+function rowFields(game: Game) {
   const completed = game.date_completed
     ? new Date(game.date_completed).toISOString().slice(0, 10)
     : "";
@@ -29,18 +17,16 @@ function rowFields(game: Game, names: string[]) {
     playtime: formatPlaytimePrecise(game.playtime),
     rating: game.personal_rating == null ? "" : String(game.personal_rating),
     completion: completed,
-    collections: names.join("; "),
   };
 }
 
-export function gamesToCsv(games: Game[], collections: Collection[]): string {
-  const names = collectionNamesByGame(collections);
-  const header = ["title", "status", "platform", "playtime", "rating", "completion_date", "collections"];
+export function gamesToCsv(games: Game[]): string {
+  const header = ["title", "status", "platform", "playtime", "rating", "completion_date"];
   const lines = [header.join(",")];
   for (const game of games) {
-    const f = rowFields(game, names.get(game.id) || []);
+    const f = rowFields(game);
     lines.push(
-      [f.title, f.status, f.platform, f.playtime, f.rating, f.completion, f.collections]
+      [f.title, f.status, f.platform, f.playtime, f.rating, f.completion]
         .map(csvEscape)
         .join(",")
     );
@@ -48,17 +34,16 @@ export function gamesToCsv(games: Game[], collections: Collection[]): string {
   return `\uFEFF${lines.join("\n")}\n`;
 }
 
-export function gamesToMarkdown(games: Game[], collections: Collection[]): string {
-  const names = collectionNamesByGame(collections);
+export function gamesToMarkdown(games: Game[]): string {
   const lines = [
     "# GameTrack Library",
     "",
-    `| Title | Status | Platform | Playtime | Rating | Completed | Collections |`,
-    `| --- | --- | --- | --- | --- | --- | --- |`,
+    `| Title | Status | Platform | Playtime | Rating | Completed |`,
+    `| --- | --- | --- | --- | --- | --- |`,
   ];
   for (const game of games) {
-    const f = rowFields(game, names.get(game.id) || []);
-    const cells = [f.title, f.status, f.platform, f.playtime, f.rating || "—", f.completion || "—", f.collections || "—"]
+    const f = rowFields(game);
+    const cells = [f.title, f.status, f.platform, f.playtime, f.rating || "—", f.completion || "—"]
       .map((c) => c.replace(/\|/g, "\\|").replace(/\n/g, " "));
     lines.push(`| ${cells.join(" | ")} |`);
   }

@@ -602,7 +602,7 @@ const DiscoverGameCard = React.memo<DiscoverGameCardProps>(({
       <div className="p-4 flex-1 flex flex-col justify-between">
         <div>
           <h4 className="font-bold text-white text-sm line-clamp-1 uppercase tracking-tight">{game.title}</h4>
-          <p className="text-[11px] text-brand-muted mt-0.5 font-mono uppercase font-bold">
+          <p className="block truncate whitespace-nowrap text-[11px] text-brand-muted mt-0.5 font-mono uppercase font-bold">
             {game.year ? `${game.year} // ` : ""}{(game.genres || []).slice(0, 1).join(" • ") || "Unknown Genre"}
           </p>
         </div>

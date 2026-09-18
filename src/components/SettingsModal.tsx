@@ -3,7 +3,7 @@ import { useGameTrackStore } from "../store";
 import { motion, AnimatePresence } from "motion/react";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { 
-  Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, ChevronDown, Info
+  Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, ChevronDown, Info, Database, Merge, FileText, Table2
 } from "lucide-react";
 import { THEMES } from "../themes";
 
@@ -14,6 +14,9 @@ export const SettingsModal: React.FC = React.memo(() => {
     steamSettings, fetchSteamSettings, saveSteamSettings, syncSteamLibrary,
     customizations, updateCustomizations,
     customPlatforms, addCustomPlatform, removeCustomPlatform,
+    backups, backupSettings, fetchBackups, fetchBackupSettings, saveBackupSettings, createBackup, deleteBackup,
+    restoreBackup, restoreBackupFile, downloadBackup, exportLibraryMarkdown, exportLibraryCsv,
+    duplicates, fetchDuplicates, mergeDuplicates, storageStats, fetchStorageStats, cleanOrphanedPosters,
   } = useGameTrackStore();
 
   const [customTagInput, setCustomTagInput] = useState("");
@@ -32,6 +35,10 @@ export const SettingsModal: React.FC = React.memo(() => {
   const [importingLibrary, setImportingLibrary] = useState(false);
   const [exportingLibrary, setExportingLibrary] = useState(false);
   const [exportingDatabase, setExportingDatabase] = useState(false);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupKeep, setBackupKeep] = useState(5);
+  const backupInputRef = useRef<HTMLInputElement>(null);
+  const [merging, setMerging] = useState<string | null>(null);
 
   const [wipeConfirmInput, setWipeConfirmInput] = useState("");
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
@@ -63,8 +70,16 @@ export const SettingsModal: React.FC = React.memo(() => {
   useEffect(() => {
     if (isSettingsOpen) {
       fetchSteamSettings();
+      fetchBackups();
+      fetchBackupSettings();
+      fetchDuplicates();
+      fetchStorageStats();
     }
-  }, [isSettingsOpen, fetchSteamSettings]);
+  }, [isSettingsOpen, fetchSteamSettings, fetchBackups, fetchBackupSettings, fetchDuplicates, fetchStorageStats]);
+
+  useEffect(() => {
+    setBackupKeep(backupSettings.keep);
+  }, [backupSettings.keep]);
 
   useEffect(() => {
     if (!isSettingsOpen) {
@@ -152,6 +167,27 @@ export const SettingsModal: React.FC = React.memo(() => {
   const formatLastSync = (ts: number | null) => {
     if (!ts) return "NEVER";
     return new Date(ts).toLocaleString();
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleRestoreFile = async (file: File) => {
+    if (!window.confirm("Restore this database and replace the current library? A safety backup will be created first.")) return;
+    setBackupBusy(true);
+    await restoreBackupFile(file);
+    setBackupBusy(false);
+    if (backupInputRef.current) backupInputRef.current.value = "";
+  };
+
+  const handleRestoreStored = async (name: string) => {
+    if (!window.confirm(`Restore ${name} and replace the current library? A safety backup will be created first.`)) return;
+    setBackupBusy(true);
+    await restoreBackup(name);
+    setBackupBusy(false);
   };
 
   return (
@@ -506,7 +542,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                     </div>
                   </div>
 
-                  {/* Display Density + Weekly Goal */}
+                  {/* Display Density */}
                   <div className="pt-2 border-t border-brand-border/40 space-y-2.5">
                     <label className="flex items-center justify-between group">
                       <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
@@ -542,29 +578,106 @@ export const SettingsModal: React.FC = React.memo(() => {
                       </div>
                     </label>
 
-                    <label className="flex items-center justify-between group">
-                      <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
-                        Weekly Playtime Goal (hours)
-                      </span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="168"
-                        step="1"
-                        value={customizations.weeklyGoalHours}
-                        onChange={(e) => {
-                          const v = Math.min(168, Math.max(0, parseInt(e.target.value) || 0));
-                          updateCustomizations({ weeklyGoalHours: v });
-                        }}
-                        className="w-16 px-2 py-1 bg-zinc-950 border border-brand-border text-xs font-mono uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent"
-                      />
-                    </label>
                   </div>
 
                 </div>
               </div>
 
-              {/* 5. Data Import */}
+              {/* 5. Backups and data maintenance */}
+              <div className="space-y-3.5">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Data Maintenance</h4>
+                  <Database className="w-3.5 h-3.5 text-brand-accent" />
+                </div>
+                <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-5">
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Local Backups</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={backupBusy}
+                        onClick={async () => { setBackupBusy(true); await createBackup(); setBackupBusy(false); }}
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-brand-accent hover:bg-brand-accent-hover disabled:opacity-40 text-brand-accent-ink text-xs font-black uppercase tracking-wider border border-transparent cursor-pointer"
+                      >
+                        {backupBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                        Backup Now
+                      </button>
+                      <button
+                        type="button"
+                        disabled={backupBusy}
+                        onClick={() => backupInputRef.current?.click()}
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 text-white text-xs font-black uppercase tracking-wider border border-brand-border cursor-pointer"
+                      >
+                        <Upload className="w-4 h-4 text-brand-accent" /> Restore File
+                      </button>
+                    </div>
+                    <input ref={backupInputRef} type="file" accept=".db,.sqlite,.sqlite3,application/vnd.sqlite3" className="hidden" onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void handleRestoreFile(file);
+                    }} />
+                    <div className="flex items-center justify-between gap-3 pt-1">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-300">Automatic daily backup</span>
+                      <button type="button" role="switch" aria-checked={backupSettings.enabled} onClick={() => saveBackupSettings({ enabled: !backupSettings.enabled })} className={`relative w-10 h-5.5 border cursor-pointer ${backupSettings.enabled ? "bg-brand-accent border-brand-accent" : "bg-zinc-900 border-brand-border"}`}>
+                        <span className={`absolute top-1/2 -translate-y-1/2 w-4 h-3.5 ${backupSettings.enabled ? "left-[21px] bg-brand-accent-ink" : "left-0.5 bg-brand-muted"}`} />
+                      </button>
+                    </div>
+                    <label className="flex items-center justify-between gap-3 text-[10px] font-mono uppercase tracking-wider text-zinc-300">
+                      Retain backup files
+                      <input type="number" min="1" max="30" value={backupKeep} onChange={(event) => setBackupKeep(Math.min(30, Math.max(1, Number(event.target.value) || 1)))} onBlur={() => saveBackupSettings({ keep: backupKeep })} className="w-16 px-2 py-1 bg-zinc-950 border border-brand-border text-xs text-white focus:outline-none focus:border-brand-accent" />
+                    </label>
+                    {backups.length > 0 && (
+                      <div className="border border-brand-border divide-y divide-brand-border max-h-36 overflow-y-auto">
+                        {backups.map((backup) => (
+                          <div key={backup.name} className="flex items-center gap-2 px-2.5 py-2 bg-zinc-900 text-[10px] font-mono">
+                            <span className="min-w-0 flex-1 truncate text-white" title={backup.name}>{backup.name}</span>
+                            <span className="text-brand-muted shrink-0">{formatBytes(backup.size)}</span>
+                            <button type="button" onClick={() => downloadBackup(backup.name)} aria-label={`Download ${backup.name}`} className="text-brand-accent hover:text-white cursor-pointer"><Download className="w-3.5 h-3.5" /></button>
+                            <button type="button" disabled={backupBusy} onClick={() => void handleRestoreStored(backup.name)} aria-label={`Restore ${backup.name}`} className="text-brand-accent hover:text-white disabled:opacity-40 cursor-pointer"><RefreshCw className="w-3.5 h-3.5" /></button>
+                            <button type="button" onClick={() => { if (window.confirm(`Delete backup ${backup.name}?`)) void deleteBackup(backup.name); }} aria-label={`Delete ${backup.name}`} className="text-brand-muted hover:text-red-400 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 border-t border-brand-border/40 pt-4">
+                    <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Library Exports</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={exportLibraryMarkdown} className="flex items-center justify-center gap-2 py-2 bg-zinc-900 hover:bg-zinc-800 border border-brand-border text-white text-[10px] font-black uppercase tracking-wider cursor-pointer"><FileText className="w-3.5 h-3.5 text-brand-accent" /> Markdown</button>
+                      <button type="button" onClick={exportLibraryCsv} className="flex items-center justify-center gap-2 py-2 bg-zinc-900 hover:bg-zinc-800 border border-brand-border text-white text-[10px] font-black uppercase tracking-wider cursor-pointer"><Table2 className="w-3.5 h-3.5 text-brand-accent" /> CSV</button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 border-t border-brand-border/40 pt-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Storage</p>
+                      <button type="button" onClick={fetchStorageStats} aria-label="Refresh storage statistics" className="text-brand-muted hover:text-brand-accent cursor-pointer"><RefreshCw className="w-3.5 h-3.5" /></button>
+                    </div>
+                    {storageStats && <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] font-mono uppercase tracking-wider text-brand-muted">
+                      <span>Games <b className="text-white">{storageStats.gameCount}</b></span>
+                      <span>Database <b className="text-white">{formatBytes(storageStats.dbSize + storageStats.walSize)}</b></span>
+                      <span>Posters <b className="text-white">{formatBytes(storageStats.posterSize)}</b></span>
+                      <span>Backups <b className="text-white">{formatBytes(storageStats.backupSize)}</b></span>
+                    </div>}
+                    <button type="button" onClick={async () => { if (window.confirm("Remove only poster files that are no longer referenced by any game or wishlist item?")) await cleanOrphanedPosters(); }} className="w-full flex items-center justify-center gap-2 py-2 bg-zinc-900 hover:bg-red-500/10 border border-brand-border hover:border-red-500/40 text-brand-muted hover:text-red-400 text-[10px] font-black uppercase tracking-wider cursor-pointer"><Trash2 className="w-3.5 h-3.5" /> Clean Orphaned Posters</button>
+                  </div>
+
+                  <div className="space-y-2 border-t border-brand-border/40 pt-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Duplicate Review</p>
+                      <button type="button" onClick={fetchDuplicates} aria-label="Rescan for duplicates" className="text-brand-muted hover:text-brand-accent cursor-pointer"><RefreshCw className="w-3.5 h-3.5" /></button>
+                    </div>
+                    {duplicates.length === 0 ? <p className="text-[10px] font-mono uppercase tracking-wider text-brand-muted">No suspected duplicates found</p> : duplicates.map((group) => (
+                      <div key={group.key} className="border border-brand-border bg-zinc-900/60 p-2.5 space-y-2">
+                        <p className="text-[10px] font-mono uppercase tracking-wider text-brand-accent">{group.reason}</p>
+                        {group.games.map((game) => <div key={game.id} className="flex items-center gap-2 text-[10px] font-mono"><span className="min-w-0 flex-1 truncate text-white">{game.title} <span className="text-brand-muted">#{game.id}</span></span><button type="button" disabled={merging === `${group.key}:${game.id}` || backupBusy} onClick={async () => { const other = group.games.find((candidate) => candidate.id !== game.id); if (!other || !window.confirm(`Keep ${game.title} and merge ${other.title} into it?`)) return; setMerging(`${group.key}:${game.id}`); await mergeDuplicates(game.id, other.id); setMerging(null); }} aria-label={`Keep ${game.title} and merge duplicate`} className="flex items-center gap-1 text-brand-accent hover:text-white disabled:opacity-40 cursor-pointer"><Merge className="w-3 h-3" /> Keep</button></div>)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 6. Data Import */}
               <div className="space-y-3.5">
                 <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Data Import</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">

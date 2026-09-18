@@ -160,12 +160,12 @@ describe("API smoke tests", () => {
     expect(explicit.body.poster_url).toBe("/posters/keep.jpg");
   });
 
-  it("status transitions auto-stamp/clear date_completed", async () => {
+  it("status transitions auto-stamp and preserve date_completed", async () => {
     // Backlog → no completion date
     const backlog = await request(app)
       .put("/api/games/1")
       .set(WITH_ORIGIN)
-      .send({ status: "backlog" });
+      .send({ status: "backlog", date_completed: null });
     expect(backlog.status).toBe(200);
     expect(backlog.body.date_completed).toBeNull();
 
@@ -178,15 +178,15 @@ describe("API smoke tests", () => {
     expect(typeof completed.body.date_completed).toBe("number");
     expect(completed.body.date_completed).toBeGreaterThan(0);
 
-    // Leaving completed → cleared
+    // Leaving completed preserves the historical completion date.
     const playing = await request(app)
       .put("/api/games/1")
       .set(WITH_ORIGIN)
       .send({ status: "playing" });
     expect(playing.status).toBe(200);
-    expect(playing.body.date_completed).toBeNull();
+    expect(playing.body.date_completed).toBe(completed.body.date_completed);
 
-    // Re-completing stamps again
+    // Re-completing keeps the existing date unless the user explicitly changes it.
     const completedAgain = await request(app)
       .put("/api/games/1")
       .set(WITH_ORIGIN)

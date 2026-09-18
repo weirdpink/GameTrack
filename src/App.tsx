@@ -26,7 +26,8 @@ export default function App() {
     steamSettings, setSettingsOpen, fetchSteamSettings,
     fetchWishlist, fetchCustomPlatforms,
     loadingGames,
-    fetchCollections, fetchWeeklyStats,
+    fetchWeeklyStats,
+    fetchCustomizations,
   } = useGameTrackStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pathname] = useState(() => window.location.pathname);
@@ -61,8 +62,8 @@ export default function App() {
     fetchAnalytics();
     fetchWishlist();
     fetchCustomPlatforms();
-    fetchCollections();
     fetchWeeklyStats();
+    fetchCustomizations();
     if (s.trendingGames.length === 0 || Date.now() - s.lastTrendingFetch > 300_000) fetchTrending();
     if (!s.discoverLists || Date.now() - s.lastListsFetch > 300_000) fetchDiscoverLists();
     // eslint-disable-next-line react-hooks/exhaustive-deps

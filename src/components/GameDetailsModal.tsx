@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useGameTrackStore } from "../store";
 import {
-  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2
+  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, History
 } from "lucide-react";
 import { formatPlaytimePrecise } from "../utils/time";
 import { motion, AnimatePresence } from "motion/react";
@@ -15,7 +15,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     syncGameSynopsis, resetGamePoster, resetGameMetadata,
     showToast, customPlatforms, customizations,
     games, openPlayingConflict,
-    collections, addGameToCollection, removeGameFromCollection,
     gameHistory, historyGameId, fetchGameHistory,
   } = useGameTrackStore();
 
@@ -47,7 +46,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   const [minutesPlayed, setMinutesPlayed] = useState("");
   const [ratingHover, setRatingHover] = useState<number | null>(null);
   const ratingValue = personalRating === "" ? 0 : parseInt(personalRating, 10) || 0;
-  const [askCompletion, setAskCompletion] = useState(false);
 
   // True once the user types in the synopsis textarea; while set, background
   // synopsis refreshes (IGDB auto-sync) must not clobber their in-progress edit.
@@ -107,6 +105,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     if (selectedGame.igdb_id && (!selectedGame.synopsis || selectedGame.synopsis === "No synopsis available." || selectedGame.synopsis === "No details provided." || selectedGame.synopsis.trim() === "")) {
       syncGameSynopsis(selectedGame.id, selectedGame.igdb_id);
     }
+    fetchGameHistory(selectedGame.id);
   }, [selectedGame, syncGameSynopsis]);
 
   // Mirror background synopsis refreshes (auto IGDB sync, poster uploads) into
@@ -824,6 +823,25 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             </div>
           ) : (
             <div className="space-y-6">
+              <section className="border border-brand-border/60 bg-zinc-950/35 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <History className="w-3.5 h-3.5 text-brand-accent" />
+                  <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Playtime History</h4>
+                </div>
+                {historyGameId === selectedGame.id && gameHistory.length > 0 ? (
+                  <div className="divide-y divide-brand-border/50">
+                    {gameHistory.map((entry) => (
+                      <div key={entry.id} className="flex items-center justify-between py-2 text-[11px] font-mono">
+                        <span className="text-white">+{formatPlaytimePrecise(entry.hours)}</span>
+                        <span className="text-brand-muted">{new Date(entry.logged_at).toLocaleDateString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] font-mono uppercase tracking-wider text-brand-muted">No logged changes yet</p>
+                )}
+              </section>
+
               <div className="pt-0">
                 <div className="text-zinc-300 text-xs sm:text-sm font-sans space-y-3 leading-relaxed pr-2 select-text">
                   {selectedGame.synopsis ? (

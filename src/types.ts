@@ -102,15 +102,6 @@ export interface CustomizationSettings {
   showPlaytimeBadge: boolean;
   showRatingBadge: boolean;
   density: "comfortable" | "compact";
-  weeklyGoalHours: number; // 0 = goal disabled
-}
-
-export interface Collection {
-  id: number;
-  name: string;
-  created_at: number;
-  game_count?: number;
-  game_ids?: number[];
 }
 
 export interface PlaytimeEntry {

@@ -420,8 +420,6 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
     let nextDateCompleted = g.date_completed !== undefined ? g.date_completed : existing.date_completed;
     if (sent("status") && nextStatus === "completed" && existing.status !== "completed" && !nextDateCompleted) {
       nextDateCompleted = now; // entering completed — stamp the completion date
-    } else if (sent("status") && nextStatus !== "completed" && existing.status === "completed") {
-      nextDateCompleted = null; // leaving completed — clear the completion date
     }
 
     // Any edit to the metadata fields marks the row as user-customized, so the
@@ -439,8 +437,8 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
         ? 1
         : existing.metadata_custom;
 
-    // User-raised playtime is a played session — log it for the weekly goal
-    // and history. Steam-sync writes bypass PUT and are never logged (bulk
+    // User-raised playtime is a played session — log it for history.
+    // Steam-sync writes bypass PUT and are never logged (bulk
     // corrections, not sessions).
     const playDelta =
       sent("playtime") && typeof g.playtime === "number"
@@ -857,6 +855,41 @@ apiRouter.put("/settings/platforms", (req: Request, res: Response) => {
   } catch (err) {
     console.error("PUT /api/settings/platforms error:", err);
     res.status(500).json({ error: "Failed to save custom platforms" });
+  }
+});
+
+const CustomizationsSchema = z.object({
+  theme: z.enum(["noir", "crimson", "paper", "arctic"]).default("noir"),
+  libraryColumns: z.number().int().min(3).max(7).default(5),
+  discoverColumns: z.number().int().min(3).max(7).default(6),
+  showPlaytimeBadge: z.boolean().default(true),
+  showRatingBadge: z.boolean().default(true),
+  density: z.enum(["comfortable", "compact"]).default("comfortable"),
+});
+
+// GET /api/settings/customizations — persisted UI preferences.
+apiRouter.get("/settings/customizations", (_req: Request, res: Response) => {
+  try {
+    const row = stmts.getSettings.get("customizations") as { value: string } | undefined;
+    if (!row) return res.json(CustomizationsSchema.parse({}));
+    const parsed = JSON.parse(row.value);
+    res.json(CustomizationsSchema.parse(parsed));
+  } catch (err) {
+    console.error("GET /api/settings/customizations error:", err);
+    res.status(500).json({ error: "Failed to read customization settings" });
+  }
+});
+
+// PUT /api/settings/customizations — replace the validated preference set.
+apiRouter.put("/settings/customizations", (req: Request, res: Response) => {
+  try {
+    const parsed = CustomizationsSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid customization settings" });
+    stmts.upsertSettings.run("customizations", JSON.stringify(parsed.data));
+    res.json(parsed.data);
+  } catch (err) {
+    console.error("PUT /api/settings/customizations error:", err);
+    res.status(500).json({ error: "Failed to save customization settings" });
   }
 });
 
@@ -1578,7 +1611,7 @@ apiRouter.delete("/collections/:id/games/:gameId", (req: Request, res: Response)
   }
 });
 
-// ── PLAYTIME HISTORY + WEEKLY GOAL ──────────────────────────────────
+// ── PLAYTIME HISTORY ────────────────────────────────────────────────
 
 // GET /api/games/:id/playtime — session log for one game (newest first)
 apiRouter.get("/games/:id/playtime", (req: Request, res: Response) => {

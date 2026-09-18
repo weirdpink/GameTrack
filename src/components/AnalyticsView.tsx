@@ -34,12 +34,16 @@ const STATUS_BAR_COLORS: Record<string, string> = {
 
 export const AnalyticsView: React.FC = React.memo(() => {
   const { 
-    games, genreAnalytics, summary, lastAnalyticsFetch, fetchAnalytics
+    games, genreAnalytics, summary, lastAnalyticsFetch, fetchAnalytics, weeklyStats, fetchWeeklyStats
   } = useGameTrackStore();
 
   useEffect(() => {
     if (!summary || Date.now() - lastAnalyticsFetch > 60_000) fetchAnalytics();
   }, [fetchAnalytics, summary, lastAnalyticsFetch]);
+
+  useEffect(() => {
+    fetchWeeklyStats();
+  }, [fetchWeeklyStats]);
 
   const totalGames = games.length;
   const completedGames = games.filter(g => g.status === "completed").length;
@@ -241,6 +245,29 @@ export const AnalyticsView: React.FC = React.memo(() => {
           </div>
         </div>
 
+      </div>
+
+      {/* Weekly activity history */}
+      <div className="border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+        <div className="flex items-center gap-2">
+          <Activity className="w-4 h-4 text-brand-accent" />
+          <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">05 // Weekly Playtime History</h3>
+        </div>
+        {!weeklyStats?.weeks?.length ? (
+          <div className="h-32 flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 font-mono text-xs uppercase text-brand-muted">No playtime history yet</div>
+        ) : (
+          <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 items-end h-36" aria-label="Weekly playtime history">
+            {weeklyStats.weeks.map((week) => {
+              const peak = Math.max(1, ...weeklyStats.weeks!.map((item) => item.loggedHours));
+              const height = Math.max(4, Math.round((week.loggedHours / peak) * 100));
+              return <div key={week.weekStart} className="h-full flex flex-col items-center justify-end gap-1.5" title={`${formatPlaytimePrecise(week.loggedHours)} · ${new Date(week.weekStart).toLocaleDateString()}`}>
+                <span className="text-[9px] font-mono text-brand-muted">{week.loggedHours > 0 ? formatPlaytimePrecise(week.loggedHours) : "0h"}</span>
+                <div className="w-full max-w-12 h-24 flex items-end bg-zinc-950 border border-brand-border/50"><div className="w-full bg-brand-accent transition-[height]" style={{ height: `${height}%` }} /></div>
+                <span className="text-[9px] font-mono text-brand-muted">{new Date(week.weekStart).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+              </div>;
+            })}
+          </div>
+        )}
       </div>
 
       {/* Row 2: Most Played + Completion Timeline */}
