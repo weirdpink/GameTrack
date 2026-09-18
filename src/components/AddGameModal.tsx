@@ -3,15 +3,17 @@ import { useGameTrackStore } from "../store";
 import { Plus, Gamepad, Calendar, List, ChevronDown, X, Star, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useModalA11y } from "../hooks/useModalA11y";
-import { uploadPoster } from "../utils/image";
+import { uploadPoster, upgradeIgdbPosterUrl } from "../utils/image";
 import { mergeCustomPlatforms } from "../constants";
 import { IGDBGame } from "../types";
 
 export const AddGameModal: React.FC = React.memo(() => {
-  const { 
-    isAddGameOpen, setAddGameOpen, addGame, updateGame, showToast, 
-    games, wishlist, addToWishlist, customPlatforms, openPlayingConflict 
+  const {
+    isAddGameOpen, setAddGameOpen, addGame, updateGame, showToast,
+    games, wishlist, addToWishlist, customPlatforms, openPlayingConflict,
+    customizations
   } = useGameTrackStore();
+  const showCriticScores = customizations.showRatingBadge;
 
   const availablePlatforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
   const [target, setTarget] = useState<"library" | "wishlist">("library");
@@ -125,7 +127,7 @@ export const AddGameModal: React.FC = React.memo(() => {
       }
     }
 
-    if (criticScore) {
+    if (showCriticScores && criticScore) {
       const scoreNum = parseInt(criticScore, 10);
       if (isNaN(scoreNum) || scoreNum < 0 || scoreNum > 100) {
         showToast("Critic Score must be between 0 and 100", "error");
@@ -166,7 +168,7 @@ export const AddGameModal: React.FC = React.memo(() => {
         genres: genresArray,
         synopsis: synopsis.trim(),
         poster_url: posterUrl.trim(),
-        critic_score: criticScore ? parseInt(criticScore, 10) : null,
+        critic_score: showCriticScores && criticScore ? parseInt(criticScore, 10) : null,
         owned_platforms: selectedPlatforms,
       };
 
@@ -391,7 +393,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                         setGenres(suggestion.genres ? suggestion.genres.join(", ") : "");
                         setSynopsis(suggestion.synopsis || "");
                         setPosterUrl(suggestion.poster_url || "");
-                        setCriticScore(suggestion.critic_score ? suggestion.critic_score.toString() : "");
+                        setCriticScore(showCriticScores && suggestion.critic_score ? suggestion.critic_score.toString() : "");
                         setShowSuggestions(false);
                       };
                       return (
@@ -411,7 +413,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                       >
                         {suggestion.poster_url ? (
                           <img
-                            src={suggestion.poster_url}
+                            src={(upgradeIgdbPosterUrl(suggestion.poster_url) as string) || suggestion.poster_url}
                             alt=""
                             referrerPolicy="no-referrer"
                             className="w-8 h-10 object-cover border border-brand-border/60 shrink-0"
@@ -433,7 +435,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                             )}
                           </div>
                         </div>
-                        {suggestion.critic_score && (
+                        {showCriticScores && suggestion.critic_score && (
                           <div className="bg-zinc-900 border border-brand-border/60 px-1.5 py-0.5 text-[11px] font-mono font-bold text-brand-accent">
                             {suggestion.critic_score}
                           </div>
@@ -576,6 +578,7 @@ export const AddGameModal: React.FC = React.memo(() => {
             )}
 
             {/* Critic Score */}
+            {showCriticScores && (
             <div className="space-y-1.5">
               <label htmlFor="add-game-critic" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Critic Score (0-100)</label>
               <div className="relative">
@@ -592,6 +595,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                 />
               </div>
             </div>
+            )}
 
             {/* Status */}
             {target === "library" && (

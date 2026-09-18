@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { FALLBACK_POSTER_URL } from "../constants";
+import { upgradeIgdbPosterUrl } from "../utils/image";
 
 interface PosterImageProps {
   src: string;
   alt?: string;
   className?: string;
+  /** Above-the-fold hero images: load eagerly at high priority instead of lazy. */
+  eager?: boolean;
 }
 
 /**
@@ -14,8 +17,10 @@ interface PosterImageProps {
  *  2. if the curated fallback itself fails, render a neutral placeholder.
  * `referrerPolicy="no-referrer"` is required — IGDB and Steam CDNs reject
  * requests that carry a Referer header.
+ * Below-the-fold posters load lazily; pass `eager` for the hero image so it
+ * starts fetching with the document instead of waiting for intersection.
  */
-export const PosterImage: React.FC<PosterImageProps> = ({ src, alt = "", className }) => {
+export const PosterImage: React.FC<PosterImageProps> = ({ src, alt = "", className, eager = false }) => {
   const [failed, setFailed] = useState(false);
   const [fallbackFailed, setFallbackFailed] = useState(false);
   useEffect(() => {
@@ -28,12 +33,14 @@ export const PosterImage: React.FC<PosterImageProps> = ({ src, alt = "", classNa
   }
 
   const showFallback = !src || failed;
+  const bestSrc = (upgradeIgdbPosterUrl(src) as string) || src;
 
   return (
     <img
-      src={showFallback ? FALLBACK_POSTER_URL : src}
+      src={showFallback ? FALLBACK_POSTER_URL : bestSrc}
       alt={alt}
-      loading="lazy"
+      loading={eager ? "eager" : "lazy"}
+      fetchPriority={eager ? "high" : "auto"}
       decoding="async"
       referrerPolicy="no-referrer"
       onError={() => {

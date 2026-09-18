@@ -1,4 +1,4 @@
-# 🎮 GAMETRACK_
+# GAMETRACK_
 
 > **A Personal Gaming Registry & Metric Analyzer.** Catalogue your collection, log playtime with precision, sync from Steam, discover new titles through IGDB, and inspect deep analytics — all rendered in a raw industrial-cyberpunk interface. Local-first, fully offline-capable, zero cloud dependency.
 

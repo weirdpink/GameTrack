@@ -1,13 +1,15 @@
 /**
- * Compresses an image file (File object) to a base64 JPEG string.
+ * Compresses an image file (File object) to a base64 WebP string.
  * Resizes the image to fit within maximum dimensions while maintaining aspect ratio,
- * and applies compression quality.
+ * and applies compression quality. WebP is ~25-35% smaller than JPEG at the
+ * same visual quality, so uploads store and load faster. (If a browser can't
+ * encode WebP, canvas falls back to PNG and the server accepts that too.)
  */
 export async function compressImage(
   file: File,
   maxWidth = 500,
   maxHeight = 667,
-  quality = 0.8
+  quality = 0.85
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith("image/")) {
@@ -47,9 +49,9 @@ export async function compressImage(
         }
 
         ctx.drawImage(img, 0, 0, width, height);
-        
-        // Output as lightweight compressed JPEG representation
-        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+
+        // Output as lightweight compressed WebP representation
+        const dataUrl = canvas.toDataURL("image/webp", quality);
         resolve(dataUrl);
       };
       
@@ -66,6 +68,24 @@ export async function compressImage(
 
     reader.readAsDataURL(file);
   });
+}
+
+export const IGDB_COVER_SIZE = "t_cover_big_2x";
+
+/**
+ * Upgrade a stored IGDB poster URL to the highest-quality cover preset in
+ * the modern WebP format. Mirrors the server-side helper so every render
+ * path loads the fastest best-quality variant even if the row was written
+ * before the format switch.
+ */
+export function upgradeIgdbPosterUrl(url: string | null | undefined): string | null | undefined {
+  if (!url || typeof url !== "string") return url;
+  if (!url.includes("images.igdb.com")) return url;
+  const upgradedSize = url.replace(
+    /\/t_(cover_small_2x|cover_small|cover_big|thumb_2x|thumb|micro_2x|micro)\//,
+    `/${IGDB_COVER_SIZE}/`
+  );
+  return upgradedSize.replace(/\.(jpe?g|png)(\?.*)?$/, ".webp$2");
 }
 
 /**

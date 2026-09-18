@@ -66,7 +66,7 @@ db.exec(`
 // only after a block completes successfully; a failed migration fails loudly
 // at startup instead of being silently re-run every boot.
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 12;
 
 function migrateTo(target: number) {
   const current = Number(db.pragma("user_version", { simple: true })) || 0;
@@ -258,6 +258,80 @@ function runMigration(version: number) {
     // by definition customized by the user.
     db.exec("UPDATE games SET metadata_custom = 1 WHERE poster_url LIKE '/posters/%'");
   }
+
+  if (version === 11) {
+    // Poster quality switch: IGDB covers were stored at `t_cover_big`
+    // (264x374). Re-point every stored IGDB poster at the retina
+    // `t_cover_big_2x` preset (528x748) — same image, best documented cover
+    // resolution. Steam CDN and local `/posters/...` uploads are untouched.
+    const upgraded = upgradeIgdbPosterQuality();
+    if (upgraded > 0) {
+      console.log(`[db] Upgraded ${upgraded} poster URL(s) to high-resolution IGDB covers.`);
+    }
+  }
+
+  if (version === 12) {
+    // Modern format switch: the IGDB CDN serves the same cover as WebP
+    // (~15-35% smaller than JPEG). Rewrite stored `.jpg`/`.jpeg`/`.png`
+    // IGDB suffixes to `.webp` — same image, faster loads. Steam CDN and
+    // local `/posters/...` uploads are untouched.
+    const upgraded = upgradeIgdbPosterQuality();
+    if (upgraded > 0) {
+      console.log(`[db] Upgraded ${upgraded} poster URL(s) to WebP.`);
+    }
+  }
+}
+
+/**
+ * Re-point stored low-resolution IGDB poster crops at `t_cover_big_2x` and
+ * rewrite legacy `.jpg`/`.jpeg`/`.png` suffixes to `.webp` (same image,
+ * modern container served by the IGDB CDN).
+ * Idempotent string replacement (games + wishlist) — safe to re-run on
+ * every boot via ensureSchemaIntegrity().
+ */
+export function upgradeIgdbPosterQuality(): number {
+  // LIKE patterns use `/.../` delimiters so `t_cover_big` never matches the
+  // already-upgraded `t_cover_big_2x` (different character after "big").
+  const upgrades: Array<[string, string]> = [
+    ["/t_cover_big/", "/t_cover_big_2x/"],
+    ["/t_cover_small/", "/t_cover_big_2x/"],
+    ["/t_cover_small_2x/", "/t_cover_big_2x/"],
+    ["/t_thumb/", "/t_cover_big_2x/"],
+    ["/t_thumb_2x/", "/t_cover_big_2x/"],
+    ["/t_micro/", "/t_cover_big_2x/"],
+    ["/t_micro_2x/", "/t_cover_big_2x/"],
+  ];
+  // Suffix swaps only apply at the end of the URL — the IGDB image_id is
+  // alphanumeric, so `.jpg`/`.png` can only occur as the file extension.
+  // (Stored poster URLs never carry query strings.)
+  const suffixUpgrades: Array<[string, string]> = [
+    [".jpg", ".webp"],
+    [".jpeg", ".webp"],
+    [".png", ".webp"],
+  ];
+  let total = 0;
+  const apply = db.transaction(() => {
+    for (const table of ["games", "wishlist"] as const) {
+      for (const [from, to] of upgrades) {
+        const info = db
+          .prepare(
+            `UPDATE ${table} SET poster_url = REPLACE(poster_url, ?, ?) WHERE poster_url LIKE '%images.igdb.com%' AND poster_url LIKE ?`
+          )
+          .run(from, to, `%${from}%`);
+        total += Number(info.changes) || 0;
+      }
+      for (const [from, to] of suffixUpgrades) {
+        const info = db
+          .prepare(
+            `UPDATE ${table} SET poster_url = REPLACE(poster_url, ?, ?) WHERE poster_url LIKE '%images.igdb.com%' AND poster_url LIKE ?`
+          )
+          .run(from, to, `%${from}`);
+        total += Number(info.changes) || 0;
+      }
+    }
+  });
+  apply();
+  return total;
 }
 
 // ── RAWG remnant cleanup ────────────────────────────────────────────
@@ -360,6 +434,7 @@ migrateTo(SCHEMA_VERSION);
 function ensureSchemaIntegrity() {
   normalizeRawgRemnants();
   normalizePosterPolicy();
+  upgradeIgdbPosterQuality();
 }
 
 ensureSchemaIntegrity();

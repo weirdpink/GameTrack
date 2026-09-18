@@ -250,11 +250,49 @@ export async function cachedFetchFromIgdb(endpoint: string, query: string, ttlMs
 }
 
 /**
- * Helper to build high-quality IGDB cover image URLs.
+ * Highest-quality documented IGDB cover preset.
+ * `t_cover_big` is only 264x374; the retina `t_cover_big_2x` variant is
+ * 528x748 and is the largest `cover_*` size IGDB documents. `t_original`
+ * is deliberately avoided: it is unbounded (multi-MB originals) and not
+ * guaranteed to be a cover crop.
  */
-export function getIgdbImageUrl(imageId: string | undefined | null, size: string = "t_cover_big"): string | null {
+export const IGDB_COVER_SIZE = "t_cover_big_2x";
+
+/**
+ * Helper to build high-quality IGDB cover image URLs.
+ * Defaults to the largest documented cover preset — never emit a
+ * lower-resolution variant when this is available. WebP is ~15-35%
+ * smaller than the equivalent JPEG at the same visual quality and is
+ * served directly by the IGDB image CDN.
+ */
+export function getIgdbImageUrl(imageId: string | undefined | null, size: string = IGDB_COVER_SIZE): string | null {
   if (!imageId) return null;
-  return `https://images.igdb.com/igdb/image/upload/${size}/${imageId}.jpg`;
+  return `https://images.igdb.com/igdb/image/upload/${size}/${imageId}.webp`;
+}
+
+/**
+ * Upgrade a stored IGDB poster URL to the highest-quality cover preset in
+ * the modern WebP format. Idempotent: URLs already on `t_cover_big_2x.webp`
+ * (or non-IGDB URLs such as Steam CDN / local `/posters/...` uploads) are
+ * returned untouched. Smaller cover crops (`t_cover_small`, `t_cover_big`,
+ * `t_thumb`, `t_micro` and their `_2x` forms) are re-pointed at
+ * `t_cover_big_2x`, and legacy `.jpg`/`.png` extensions become `.webp`, so
+ * every render path loads the fastest best-quality variant without another
+ * IGDB round-trip.
+ */
+export function upgradeIgdbPosterUrl(url: string | null | undefined): string | null | undefined {
+  if (!url || typeof url !== "string") return url;
+  if (!url.includes("images.igdb.com")) return url;
+  // Only rewrite cover/thumb/micro crops (portrait-ish poster sources).
+  // Screenshot / logo / 720p / 1080p sizes have different aspect ratios and
+  // are never stored as posters, so leave them alone.
+  const upgradedSize = url.replace(
+    /\/t_(cover_small_2x|cover_small|cover_big|thumb_2x|thumb|micro_2x|micro)\//,
+    `/${IGDB_COVER_SIZE}/`
+  );
+  // Same image, modern container: the CDN serves WebP for the .webp suffix.
+  const upgraded = upgradedSize.replace(/\.(jpe?g|png)(\?.*)?$/, ".webp$2");
+  return upgraded;
 }
 
 /**
@@ -283,7 +321,7 @@ export function mapIgdbGame(item: IgdbRawGame): IgdbMappedGame {
     : [];
 
   const poster_url = item.cover?.image_id
-    ? getIgdbImageUrl(item.cover.image_id, "t_cover_big")
+    ? getIgdbImageUrl(item.cover.image_id)
     : null;
 
   const critic_score = typeof item.aggregated_rating === "number" 

@@ -252,20 +252,15 @@ apiRouter.get("/export/db", async (_req: Request, res: Response) => {
   const tmpPath = path.join(DATA_DIR, `.backup-${process.pid}-${Date.now()}.db`);
   try {
     await db.backup(tmpPath);
+    // Read the snapshot into memory and delete the temp file up front — the
+    // library DB is small (local single-user app), and sending a buffer avoids
+    // any temp-file/stream lifecycle races with the response.
+    const snapshot = fs.readFileSync(tmpPath);
+    fs.rmSync(tmpPath, { force: true });
     res.setHeader("Content-Type", "application/vnd.sqlite3");
     res.setHeader("Content-Disposition", `attachment; filename="gametrack-backup-${stamp}.db"`);
-    const stream = fs.createReadStream(tmpPath);
-    // The response is fully flushed once the stream closes, so deleting the
-    // temp snapshot synchronously here cannot truncate the download.
-    const cleanup = () => fs.rmSync(tmpPath, { force: true });
-    stream.on("close", cleanup);
-    stream.on("error", (err) => {
-      cleanup();
-      console.error("GET /api/export/db stream error:", err);
-      if (!res.headersSent) res.status(500).json({ error: "Failed to export database" });
-      else res.destroy();
-    });
-    stream.pipe(res);
+    res.setHeader("Content-Length", snapshot.length);
+    res.send(snapshot);
   } catch (err) {
     fs.rmSync(tmpPath, { force: true });
     console.error("GET /api/export/db error:", err);

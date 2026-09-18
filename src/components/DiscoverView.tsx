@@ -297,6 +297,7 @@ export const DiscoverView: React.FC = () => {
         <div className="space-y-14">
           <TabbedCuratedSection
             loading={loadingLists}
+            showRating={customizations.showRatingBadge}
             onCardClick={handleCardClick}
             onAddGame={handleAddGame}
             onAddWishlist={handleToggleWishlist}
@@ -449,7 +450,7 @@ export const DiscoverView: React.FC = () => {
                   </p>
                   
                   <div className="flex flex-wrap gap-2 pt-1">
-                    {infoModalGame.critic_score && (
+                    {customizations.showRatingBadge && infoModalGame.critic_score && (
                       <span className="px-2 py-0.5 rounded-none text-[11px] font-mono font-black bg-zinc-900 border border-brand-border text-brand-accent">
                         METACRITIC: {infoModalGame.critic_score}
                       </span>
@@ -649,6 +650,7 @@ DiscoverGameCard.displayName = "DiscoverGameCard";
 
 interface TabbedCuratedSectionProps {
   loading: boolean;
+  showRating?: boolean;
   onCardClick: (game: IGDBGame) => void;
   onAddGame: (game: IGDBGame) => void;
   onAddWishlist: (game: IGDBGame) => void;
@@ -663,7 +665,7 @@ interface TabbedCuratedSectionProps {
 type CuratedTabId = "recent" | "alltime" | "new" | "hyped";
 
 const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
-  loading, onCardClick, onAddGame, onAddWishlist, isWishlisted, getLibraryGame,
+  loading, showRating = true, onCardClick, onAddGame, onAddWishlist, isWishlisted, getLibraryGame,
   topThisMonth, bestAllTime, newReleases, mostHyped,
 }) => {
   const [activeTab, setActiveTab] = useState<CuratedTabId>("recent");
@@ -755,6 +757,7 @@ const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
               game={game}
               inLibrary={Boolean(getLibraryGame(game.igdb_id))}
               wishlisted={isWishlisted(game.igdb_id)}
+              showRating={showRating}
               onClick={onCardClick}
               onAddGame={onAddGame}
               onAddWishlist={onAddWishlist}
@@ -770,10 +773,11 @@ const CuratedGameCard = React.memo<{
   game: IGDBGame;
   inLibrary: boolean;
   wishlisted: boolean;
+  showRating?: boolean;
   onClick: (game: IGDBGame) => void;
   onAddGame: (game: IGDBGame) => void;
   onAddWishlist: (game: IGDBGame) => void;
-}>(({ game, inLibrary, wishlisted, onClick, onAddGame, onAddWishlist }) => {
+}>(({ game, inLibrary, wishlisted, showRating = true, onClick, onAddGame, onAddWishlist }) => {
   const handleClick = () => onClick(game);
   return (
     <div
@@ -838,7 +842,7 @@ const CuratedGameCard = React.memo<{
             </button>
           </div>
         )}
-        {game.critic_score && (
+        {showRating && game.critic_score && (
           <div className="absolute bottom-2 right-2 bg-zinc-950/90 backdrop-blur-sm px-1.5 py-0.5 text-[10px] font-mono font-black text-brand-accent border border-brand-border shadow-sm">
             {game.critic_score}
           </div>

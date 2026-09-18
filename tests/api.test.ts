@@ -516,7 +516,8 @@ describe("API smoke tests", () => {
     const body = res.body as Buffer;
     expect(body.length).toBeGreaterThan(100);
     expect(body.subarray(0, 16).toString("latin1")).toBe("SQLite format 3\0");
-    // The snapshot must not linger in the data dir.
+    // The temp snapshot is removed once the transfer completes.
+    await new Promise((r) => setTimeout(r, 100));
     const leftovers = fs.readdirSync(TMP).filter((f) => f.startsWith(".backup-"));
     expect(leftovers).toEqual([]);
   });

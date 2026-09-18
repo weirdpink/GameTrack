@@ -467,13 +467,13 @@ export const SettingsModal: React.FC = React.memo(() => {
 
                     <label className="flex items-center justify-between cursor-pointer group">
                       <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
-                        Show Rating Badges
+                        Show Critic Scores
                       </span>
                       <button
                         type="button"
                         role="switch"
                         aria-checked={customizations.showRatingBadge}
-                        aria-label="Toggle rating badges"
+                        aria-label="Toggle critic scores"
                         onClick={() => updateCustomizations({ showRatingBadge: !customizations.showRatingBadge })}
                         className={`relative w-10 h-5.5 shrink-0 border transition-colors cursor-pointer ${
                           customizations.showRatingBadge

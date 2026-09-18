@@ -13,7 +13,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   const {
     selectedGame, setSelectedGame, updateGame, deleteGame,
     syncGameSynopsis, resetGamePoster, resetGameMetadata,
-    showToast, customPlatforms,
+    showToast, customPlatforms, customizations,
     games, openPlayingConflict
   } = useGameTrackStore();
 
@@ -480,7 +480,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 <span className={`px-2 py-0.5 rounded-none text-[11px] font-black border uppercase tracking-wider ${getStatusBadgeColor(selectedGame.status)}`}>
                   {getStatusLabel(selectedGame.status)}
                 </span>
-                {selectedGame.critic_score != null && (
+                {customizations.showRatingBadge && selectedGame.critic_score != null && (
                   <span className="px-2 py-0.5 rounded-none text-[11px] font-mono font-black bg-zinc-900 border border-brand-border text-brand-accent">
                     CRITIC: {selectedGame.critic_score}
                   </span>

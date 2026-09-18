@@ -55,16 +55,17 @@ const formatStatus = (status: string) => getStatusLabel(status).toUpperCase();
 
 export const DashboardView: React.FC = React.memo(() => {
   const { 
-    games, loadingGames, summary, suggestions, recentActivity, loadingAnalytics, fetchAnalytics, 
-    fetchSuggestions, setSelectedGame, lastAnalyticsFetch, customPlatforms 
+    games, loadingGames, summary, suggestions, recentActivity, loadingAnalytics, fetchAnalytics,
+    fetchSuggestions, setSelectedGame, lastAnalyticsFetch, customPlatforms, customizations
   } = useGameTrackStore(useShallow(s => ({
-    games: s.games, loadingGames: s.loadingGames, summary: s.summary, 
-    suggestions: s.suggestions, recentActivity: s.recentActivity, 
-    loadingAnalytics: s.loadingAnalytics, fetchAnalytics: s.fetchAnalytics, 
-    fetchSuggestions: s.fetchSuggestions, 
-    setSelectedGame: s.setSelectedGame, 
+    games: s.games, loadingGames: s.loadingGames, summary: s.summary,
+    suggestions: s.suggestions, recentActivity: s.recentActivity,
+    loadingAnalytics: s.loadingAnalytics, fetchAnalytics: s.fetchAnalytics,
+    fetchSuggestions: s.fetchSuggestions,
+    setSelectedGame: s.setSelectedGame,
     lastAnalyticsFetch: s.lastAnalyticsFetch,
-    customPlatforms: s.customPlatforms
+    customPlatforms: s.customPlatforms,
+    customizations: s.customizations
   })));
 
   const platforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
@@ -247,9 +248,10 @@ export const DashboardView: React.FC = React.memo(() => {
                     <PosterImage
                       src={game.poster_url}
                       alt={game.title}
+                      eager
                       className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200 transform-gpu will-change-transform"
                     />
-                    {game.critic_score && (
+                    {customizations.showRatingBadge && game.critic_score && (
                       <div className="absolute top-4 left-4 bg-zinc-950/90 border border-brand-accent px-2.5 py-1 font-mono text-xs font-black text-brand-accent uppercase tracking-wider shadow-lg">
                         MC: {game.critic_score}
                       </div>

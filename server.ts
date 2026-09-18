@@ -260,11 +260,14 @@ export async function createApp(production = false) {
     res.status(404).json({ error: "API Route Not Found" });
   });
 
-  // Serve locally uploaded custom posters from the data directory
+  // Serve locally uploaded custom posters from the data directory.
+  // Filenames embed a timestamp + random id, so each URL is unique and
+  // immutable — browsers never need to revalidate them.
   app.use(
     "/posters",
     express.static(POSTERS_DIR, {
       maxAge: "30d",
+      immutable: true,
       etag: true,
       fallthrough: true,
     })
