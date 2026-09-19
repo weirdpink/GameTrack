@@ -111,13 +111,6 @@ export interface PlaytimeEntry {
   logged_at: number;
 }
 
-export interface WeeklyStats {
-  weekStart: number;
-  loggedHours: number;
-  entryCount: number;
-  weeks?: { weekStart: number; loggedHours: number }[];
-}
-
 export interface BackupInfo {
   name: string;
   created_at: number;

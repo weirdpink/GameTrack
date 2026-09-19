@@ -1,6 +1,6 @@
 # GameTrack
 
-GameTrack is a local game library and backlog tracker. It helps you keep track of the games you own, what you are playing, your playtime, ratings, collections, and completion dates.
+GameTrack is a local game library and backlog tracker. It helps you keep track of the games you own, what you are playing, your playtime, ratings, and completion dates.
 
 It also includes Steam sync, IGDB discovery, library filters, analytics, backups, and Markdown/CSV/JSON exports. Your data is stored locally in SQLite.
 

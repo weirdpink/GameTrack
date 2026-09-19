@@ -277,7 +277,7 @@ export const LandingView: React.FC<{ onEnter: () => void }> = React.memo(({ onEn
                 </button>
                 <a
                   href="#link"
-                  className="flex items-center justify-center gap-2.5 px-7 py-3.5 bg-transparent hover:bg-zinc-900 text-white text-xs font-sans font-black uppercase tracking-widest rounded-none border border-brand-border hover:border-brand-accent/60 transition-all"
+                  className="flex items-center justify-center gap-2.5 px-7 py-3.5 bg-transparent hover:text-white text-xs font-sans font-black uppercase tracking-widest rounded-none border border-brand-border hover:border-brand-accent/60 transition-all"
                 >
                   Scan Features
                   <ArrowDown className="w-4 h-4" />
@@ -399,7 +399,7 @@ export const LandingView: React.FC<{ onEnter: () => void }> = React.memo(({ onEn
               {steamSettings?.keySet ? (
                 <button
                   onClick={openSettings}
-                  className="inline-flex items-center gap-2.5 px-6 py-3 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/60 text-white text-xs font-black uppercase tracking-widest rounded-none transition-all cursor-pointer"
+                  className="inline-flex items-center gap-2.5 px-6 py-3 bg-transparent border border-brand-border hover:border-brand-accent/60 text-white text-xs font-black uppercase tracking-widest rounded-none transition-all cursor-pointer"
                 >
                   <Joystick className="w-4 h-4 text-brand-accent" />
                   {steamSettings?.steamId
@@ -459,7 +459,7 @@ export const LandingView: React.FC<{ onEnter: () => void }> = React.memo(({ onEn
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.3 }}
               transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-              className="group grid grid-cols-1 lg:grid-cols-[56px_1fr_auto] gap-4 lg:items-center px-6 md:px-10 py-8 hover:bg-zinc-900/50 transition-colors"
+              className="group grid grid-cols-1 lg:grid-cols-[56px_1fr_auto] gap-4 lg:items-center px-6 md:px-10 py-8 hover:bg-brand-accent/[0.03] transition-colors"
             >
               <div className="flex items-center gap-4">
                 <Search className="w-5 h-5 text-brand-accent shrink-0" />
@@ -483,7 +483,7 @@ export const LandingView: React.FC<{ onEnter: () => void }> = React.memo(({ onEn
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.3 }}
               transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-              className="group grid grid-cols-1 lg:grid-cols-[56px_1fr_auto] gap-4 lg:items-center px-6 md:px-10 py-8 hover:bg-zinc-900/50 transition-colors"
+              className="group grid grid-cols-1 lg:grid-cols-[56px_1fr_auto] gap-4 lg:items-center px-6 md:px-10 py-8 hover:bg-brand-accent/[0.03] transition-colors"
             >
               <div className="flex items-center gap-4">
                 <BarChart3 className="w-5 h-5 text-brand-accent shrink-0" />
@@ -522,7 +522,7 @@ export const LandingView: React.FC<{ onEnter: () => void }> = React.memo(({ onEn
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.3 }}
               transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-              className="group grid grid-cols-1 lg:grid-cols-[56px_1fr_auto] gap-4 lg:items-center px-6 md:px-10 py-8 hover:bg-zinc-900/50 transition-colors"
+              className="group grid grid-cols-1 lg:grid-cols-[56px_1fr_auto] gap-4 lg:items-center px-6 md:px-10 py-8 hover:bg-brand-accent/[0.03] transition-colors"
             >
               <div className="flex items-center gap-4">
                 <DatabaseBackup className="w-5 h-5 text-brand-accent shrink-0" />

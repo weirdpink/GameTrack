@@ -1,27 +1,40 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import { 
   Trophy, Clock, Sparkles, Calendar, Shuffle, ChevronDown
 } from "lucide-react";
 import { motion } from "motion/react";
-import { formatPlaytime, formatPlaytimeLong, formatPlaytimePrecise } from "../utils/time";
+import { formatPlaytime, formatPlaytimeLong } from "../utils/time";
 import { getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms } from "../constants";
 import { PosterImage } from "./PosterImage";
+import AnalyticsView from "./AnalyticsView";
+import ActiveGamesModal from "./ActiveGamesModal";
 
 // Render a single stat card in bold brutalist style
 interface StatCardProps {
   title: string;
   value: string | number;
   subtext: string;
+  onClick?: () => void;
 }
 
-const StatCard = React.memo(({ title, value, subtext }: StatCardProps) => {
+const StatCard = React.memo(({ title, value, subtext, onClick }: StatCardProps) => {
   // Check if the value is a string with a space or ends with H (e.g. "13H 34M" or "38H")
   const isPlaytime = typeof value === "string" && (value.includes(" ") || value.endsWith("H"));
   
   return (
-    <div className="bg-transparent border border-brand-border p-6 rounded-none relative overflow-hidden group hover:border-brand-accent/50 transition-colors h-full flex flex-col justify-between">
+    <div
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      } : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      role={onClick ? "button" : undefined}
+      className={`bg-transparent border border-brand-border p-6 rounded-none relative overflow-hidden group hover:border-brand-accent/50 transition-colors h-full flex flex-col justify-between${onClick ? " cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent" : ""}`}>
       <div className="space-y-2">
         <p className="text-xs font-bold uppercase tracking-widest text-brand-muted font-mono">{title}</p>
         
@@ -55,10 +68,10 @@ const formatStatus = (status: string) => getStatusLabel(status).toUpperCase();
 
 export const DashboardView: React.FC = React.memo(() => {
   const {
-    games, loadingGames, summary, suggestions, recentActivity, loadingAnalytics, fetchAnalytics,
+    games, summary, suggestions, recentActivity, loadingAnalytics, fetchAnalytics,
     fetchSuggestions, setSelectedGame, lastAnalyticsFetch, customPlatforms, customizations
   } = useGameTrackStore(useShallow(s => ({
-    games: s.games, loadingGames: s.loadingGames, summary: s.summary,
+    games: s.games, summary: s.summary,
     suggestions: s.suggestions, recentActivity: s.recentActivity,
     loadingAnalytics: s.loadingAnalytics, fetchAnalytics: s.fetchAnalytics,
     fetchSuggestions: s.fetchSuggestions,
@@ -81,6 +94,7 @@ export const DashboardView: React.FC = React.memo(() => {
   }, [fetchAnalytics, summary, lastAnalyticsFetch]);
 
   const activeGames = React.useMemo(() => games.filter(g => g.status === "playing"), [games]);
+  const [activeGamesOpen, setActiveGamesOpen] = useState(false);
 
   return (
     <div className="space-y-10">
@@ -89,10 +103,10 @@ export const DashboardView: React.FC = React.memo(() => {
         <div className="space-y-3">
           {/* Huge Display Hero Title */}
           <h1 className="text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none">
-            TOTAL<br />CENTRAL
+            GAME<br /><span className="text-brand-accent">TRACK_</span>
           </h1>
           <p className="max-w-none text-brand-muted text-sm sm:text-base font-medium leading-relaxed lg:whitespace-nowrap">
-            Your personal gaming registry. Track, organize, and analyze your collection.
+            Your personal gaming registry. Track, organize, and analyze your library.
           </p>
         </div>
       </div>
@@ -115,6 +129,7 @@ export const DashboardView: React.FC = React.memo(() => {
             title="Active Backlog"
             value={summary?.active_games ?? 0}
             subtext="currently in active play"
+            onClick={() => setActiveGamesOpen(true)}
           />
           <StatCard
             title="Completed"
@@ -131,65 +146,6 @@ export const DashboardView: React.FC = React.memo(() => {
 
 
 
-      {/* Currently Active Play Session: High Contrast Bold Panel */}
-      {loadingGames && games.length === 0 ? (
-        <div className="bg-zinc-900/50 p-8 sm:p-10 rounded-none flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 border-l-8 border-zinc-800 animate-pulse min-h-[160px] sm:min-h-[148px]">
-          <div className="space-y-4 flex-1">
-            <div className="h-3.5 bg-zinc-800 w-24"></div>
-            <div className="h-8 bg-zinc-800 w-1/3 mt-2"></div>
-            <div className="h-3 bg-zinc-800 w-1/2"></div>
-          </div>
-          <div className="space-y-3 w-28 text-left sm:text-right shrink-0">
-            <div className="h-2.5 bg-zinc-800 w-16 sm:ml-auto"></div>
-            <div className="h-6 bg-zinc-800 w-20 sm:ml-auto"></div>
-          </div>
-        </div>
-      ) : activeGames.length > 0 ? (
-        <div className="space-y-4">
-          {activeGames.map((game) => (
-            <div key={game.id} className="bg-session-bg text-session-text p-8 sm:p-10 rounded-none flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 transition-all border-l-8 border-brand-accent select-none">
-              <div className="space-y-4">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext font-mono">
-                  CURRENT_SESSION
-                </h3>
-                <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter leading-none text-session-text font-sans">
-                  {game.title}
-                </h2>
-                <p className="text-xs font-bold text-session-subtext font-mono tracking-wider max-w-lg uppercase">
-                  {game.genres?.slice(0, 3).join(" • ") ?? ""}
-                </p>
-              </div>
-              
-              <div className="text-left sm:text-right shrink-0">
-                <p className="text-[11px] font-mono tracking-widest text-session-subtext uppercase font-bold">Accumulated</p>
-                <div className="font-mono text-3xl sm:text-4xl font-black text-session-text tracking-tight mt-1">
-                  {game.hide_playtime === 1 ? "—" : formatPlaytimePrecise(game.playtime)}
-                </div>
-                <button
-                  onClick={() => setSelectedGame(game)}
-                  className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider bg-session-text text-session-bg hover:opacity-90 px-3.5 py-1.5 rounded-none transition-all cursor-pointer"
-                >
-                  View Details
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="bg-session-bg text-session-text p-8 sm:p-10 rounded-none flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 transition-all border-l-8 border-brand-accent select-none">
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext font-mono">
-              NO_ACTIVE_SESSION
-            </h3>
-            <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter leading-none text-session-text font-sans">
-              READY_FOR_ENGAGEMENT
-            </h2>
-            <p className="text-xs font-bold text-session-subtext font-mono tracking-wider max-w-lg uppercase">
-              MARK A TITLE AS 'CURRENTLY PLAYING' TO INITIATE METRIC TRACKING
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* Suggestions and Recent Activity Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
@@ -388,6 +344,17 @@ export const DashboardView: React.FC = React.memo(() => {
         </div>
 
       </div>
+
+      {/* Full analytics telemetry — moved here from the former standalone tab */}
+      <div className="border-t border-brand-border pt-10">
+        <AnalyticsView />
+      </div>
+
+      <ActiveGamesModal
+        open={activeGamesOpen}
+        games={activeGames}
+        onClose={() => setActiveGamesOpen(false)}
+      />
 
     </div>
   );

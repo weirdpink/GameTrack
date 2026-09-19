@@ -26,13 +26,13 @@ beforeAll(() => {
 describe("AnalyticsView runtime", () => {
   it("renders cards, charts and lists without crashing", async () => {
     render(<AnalyticsView />);
-    expect(await screen.findByText(/SYSTEM/)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "System Analytics" })).toBeTruthy();
     expect(screen.getByText("REGISTRY TITLES")).toBeTruthy();
     expect(screen.getByText("TOTAL TELEMETRY HOURS")).toBeTruthy();
-    expect(screen.getByText("01 // Genre telemetry Share")).toBeTruthy();
-    expect(screen.getByText("02 // Status Distribution")).toBeTruthy();
-    expect(screen.getByText("03 // Most Played Titles")).toBeTruthy();
-    expect(screen.getByText("04 // Completed Titles")).toBeTruthy();
+    expect(screen.getByText("Genre Telemetry Share")).toBeTruthy();
+    expect(screen.getByText("Status Distribution")).toBeTruthy();
+    expect(screen.getByText("Most Played Titles")).toBeTruthy();
+    expect(screen.getByText("Completed Titles")).toBeTruthy();
     // Note: chart painting can't be asserted in jsdom (no layout engine), but
     // this test proves the view renders without throwing on real-shaped data.
   });

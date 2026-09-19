@@ -3,7 +3,7 @@ import {
   Game, LibrarySummary,
   GenreAnalytics, NextToPlaySuggestion,
   IGDBGame, SteamSettings, DiscoverLists, CustomizationSettings, WishlistItem, ManualWishlistEntry,
-  PlayingConflict, WeeklyStats, PlaytimeEntry, BackupInfo, DuplicateGroup, StorageStats, BackupSettings
+  PlayingConflict, PlaytimeEntry, BackupInfo, DuplicateGroup, StorageStats, BackupSettings
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
 import { Platform, slugifyPlatformLabel, mergeCustomPlatforms } from "./constants";
@@ -92,8 +92,8 @@ async function syncGameField(id: number, igdbId: number, field: "synopsis" | "po
 }
 
 interface GameTrackState {
-  activeTab: "dashboard" | "library" | "discover" | "analytics" | "wishlist";
-  setActiveTab: (tab: "dashboard" | "library" | "discover" | "analytics" | "wishlist") => void;
+  activeTab: "dashboard" | "library" | "discover" | "wishlist";
+  setActiveTab: (tab: "dashboard" | "library" | "discover" | "wishlist") => void;
   selectedGame: Game | null;
   setSelectedGame: (game: Game | null) => void;
   isAddGameOpen: boolean;
@@ -181,9 +181,6 @@ interface GameTrackState {
   removeCustomPlatform: (id: string) => Promise<boolean>;
   _saveCustomPlatforms: (platforms: Platform[]) => Promise<boolean>;
 
-  weeklyStats: WeeklyStats | null;
-  fetchWeeklyStats: () => Promise<void>;
-
   gameHistory: PlaytimeEntry[];
   historyGameId: number | null;
   fetchGameHistory: (gameId: number) => Promise<void>;
@@ -224,7 +221,7 @@ interface GameTrackState {
 const TAB_KEY = "gametrack_active_tab";
 // Wishlist is a full page but has no sidebar entry (it's opened from the
 // Library header), so it must never be restored on reload.
-const VALID_TABS = ["dashboard", "library", "discover", "analytics"] as const;
+const VALID_TABS = ["dashboard", "library", "discover"] as const;
 
 function getInitialTab(): GameTrackState["activeTab"] {
   const stored = typeof window !== "undefined" && window.localStorage ? localStorage.getItem(TAB_KEY) : null;
@@ -488,7 +485,6 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         selectedGame: state.selectedGame?.id === id ? data : state.selectedGame,
       }));
       get().fetchAnalytics();
-      if (Object.prototype.hasOwnProperty.call(gameData, "playtime")) get().fetchWeeklyStats();
       return true;
     } catch (err: unknown) {
       get().showToast(getErrorMessage(err) || "Error updating game", "error");
@@ -1303,16 +1299,6 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   },
 
   // ── Playtime history ────────────────────────────────────────
-  weeklyStats: null,
-  fetchWeeklyStats: async () => {
-    try {
-      const res = await fetch("/api/stats/weekly");
-      if (!res.ok) return;
-      set({ weeklyStats: await res.json() });
-    } catch (err) {
-      console.error("Failed to fetch weekly stats:", err);
-    }
-  },
   gameHistory: [],
   historyGameId: null,
   fetchGameHistory: async (gameId) => {
@@ -1402,7 +1388,6 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       await get().fetchGames(true);
       await get().fetchAnalytics();
       await get().fetchWishlist(true);
-      await get().fetchWeeklyStats();
       await get().fetchCustomPlatforms();
       get().showToast("Backup restored", "success", name);
       return true;
@@ -1444,7 +1429,6 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       await get().fetchGames(true);
       await get().fetchAnalytics();
       await get().fetchWishlist(true);
-      await get().fetchWeeklyStats();
       await get().fetchCustomPlatforms();
       get().showToast("Backup restored", "success", file.name);
       return true;

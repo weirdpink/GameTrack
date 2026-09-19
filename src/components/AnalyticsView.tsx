@@ -1,11 +1,8 @@
 import React, { useEffect } from "react";
 import { useGameTrackStore } from "../store";
 import { 
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
-import { 
-  Activity, Trophy, BarChart2
-} from "lucide-react";
 import { STATUSES } from "../constants";
 import { formatPlaytimePrecise } from "../utils/time";
 const CustomTooltip = React.memo(({ active, payload, label }: { active?: boolean, payload?: { name: string, value: number | string }[], label?: string }) => {
@@ -34,16 +31,12 @@ const STATUS_BAR_COLORS: Record<string, string> = {
 
 export const AnalyticsView: React.FC = React.memo(() => {
   const { 
-    games, genreAnalytics, summary, lastAnalyticsFetch, fetchAnalytics, weeklyStats, fetchWeeklyStats
+    games, genreAnalytics, summary, lastAnalyticsFetch, fetchAnalytics
   } = useGameTrackStore();
 
   useEffect(() => {
     if (!summary || Date.now() - lastAnalyticsFetch > 60_000) fetchAnalytics();
   }, [fetchAnalytics, summary, lastAnalyticsFetch]);
-
-  useEffect(() => {
-    fetchWeeklyStats();
-  }, [fetchWeeklyStats]);
 
   const totalGames = games.length;
   const completedGames = games.filter(g => g.status === "completed").length;
@@ -83,31 +76,20 @@ export const AnalyticsView: React.FC = React.memo(() => {
       .slice(0, 8);
   }, [games]);
 
-  const NEON_COLORS = [
-    "var(--brand-accent)", // brand accent
-    "#38BDF8", // sky-400
-    "#F472B6", // pink-400
-    "var(--emerald-400-val)", // emerald-400
-    "#FB923C", // orange-400
-    "var(--fuchsia-400-val)", // violet-400
-    "var(--red-400-val)"  // red-400
-  ];
+  // Single-accent series — one clean color story instead of a rainbow.
+  const genreData = genreAnalytics.slice(0, 7);
 
   return (
     <div className="space-y-10">
-      {/* Page Header */}
-      <div className="flex flex-col lg:flex-row justify-between items-start gap-8">
-        <div>
-          <h1 className="text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none mb-3">
-            SYSTEM<br />ANALYTICS
-          </h1>
-          <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
-            Personal Gameplay telemetry & system analytics.
-          </p>
-        </div>
+      {/* Section Header — analytics now lives on the home (dashboard) page */}
+      <div className="border-b border-brand-border pb-3 flex items-center gap-2">
+        <h2 className="text-lg font-bold tracking-tight uppercase text-white">System Analytics</h2>
+        <p className="text-[11px] font-mono text-brand-muted uppercase tracking-widest ml-auto hidden sm:block">
+          Personal gameplay telemetry & system analytics
+        </p>
       </div>
 
-      {/* Global telemetry cards */}
+      {/* Global telemetry cards — equal, perfectly sized columns */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-transparent border border-brand-border p-6 rounded-none relative overflow-hidden group hover:border-brand-accent/50 transition-colors flex flex-col justify-between">
           <div className="space-y-2">
@@ -159,14 +141,13 @@ export const AnalyticsView: React.FC = React.memo(() => {
         </div>
       </div>
 
-      {/* Row 1: Genres + Status Distribution */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {/* Row 1: Genres (wide) + Status Distribution (narrow) */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
 
-        {/* Genre distribution Bar chart */}
-        <div className="border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+        {/* Genre distribution Area chart */}
+        <div className="xl:col-span-3 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
           <div className="flex items-center gap-2">
-            <BarChart2 className="w-4 h-4 text-brand-accent" />
-            <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">01 // Genre telemetry Share</h3>
+            <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">Genre Telemetry Share</h3>
           </div>
           <div
             className="h-72 w-full pt-4"
@@ -174,50 +155,66 @@ export const AnalyticsView: React.FC = React.memo(() => {
             aria-label={
               genreAnalytics.length === 0
                 ? "Genre chart: no data"
-                : `Genre chart by playtime: ${genreAnalytics.slice(0, 7).map((g) => `${g.genre} ${Math.round(g.total_playtime || 0)} hours`).join(", ")}`
+                : `Genre chart by playtime: ${genreData.map((g) => `${g.genre} ${Math.round(g.total_playtime || 0)} hours`).join(", ")}`
             }
           >
-            {genreAnalytics.length === 0 ? (
+            {genreData.length === 0 ? (
               <div className="w-full h-full flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 font-mono text-xs uppercase text-brand-muted">
                 No genre metrics registry
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={genreAnalytics.slice(0, 7)} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <AreaChart data={genreData} margin={{ top: 14, right: 14, left: -4, bottom: 0 }}>
+                  <defs>
+                    {/* Vertical fade: luminous at the line, dissolving into the background */}
+                    <linearGradient id="genreAreaFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--brand-accent)" stopOpacity={0.28} />
+                      <stop offset="70%" stopColor="var(--brand-accent)" stopOpacity={0.05} />
+                      <stop offset="100%" stopColor="var(--brand-accent)" stopOpacity={0} />
+                    </linearGradient>
+                    {/* Soft bloom behind the line */}
+                    <filter id="genreGlow" x="-20%" y="-20%" width="140%" height="140%">
+                      <feDropShadow dx="0" dy="0" stdDeviation="8" floodColor="var(--brand-accent)" floodOpacity="0.35" />
+                    </filter>
+                  </defs>
+                  <CartesianGrid vertical={false} stroke="var(--brand-border)" strokeOpacity={0.35} strokeDasharray="3 6" />
                   <XAxis 
                     dataKey="genre" 
                     stroke="var(--zinc-600-val)" 
                     tickLine={false}
-                    axisLine={false}
-                    tick={{ fill: "var(--brand-muted)", fontSize: 9, fontFamily: "monospace" }} 
+                    axisLine={{ stroke: "var(--brand-border)", strokeOpacity: 0.5 }}
+                    tickMargin={10}
+                    tick={{ fill: "var(--brand-muted)", fontSize: 9, fontFamily: "monospace", letterSpacing: "0.08em" }} 
                   />
                   <YAxis 
                     stroke="var(--zinc-600-val)" 
                     tickLine={false}
                     axisLine={false}
+                    tickMargin={6}
                     tick={{ fill: "var(--brand-muted)", fontSize: 9, fontFamily: "monospace" }}
                   />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar 
-                    dataKey="total_playtime" 
-                    name="PLAYTIME HOURS" 
-                    fill="#38BDF8"
-                  >
-                    {genreAnalytics.slice(0, 7).map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={NEON_COLORS[index % NEON_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
+                  <Tooltip content={<CustomTooltip />} cursor={{ stroke: "var(--brand-accent)", strokeOpacity: 0.35, strokeWidth: 1 }} />
+                  <Area
+                    type="monotone"
+                    dataKey="total_playtime"
+                    name="PLAYTIME HOURS"
+                    stroke="var(--brand-accent)"
+                    strokeWidth={2.5}
+                    fill="url(#genreAreaFill)"
+                    filter="url(#genreGlow)"
+                    dot={{ fill: "var(--brand-bg)", stroke: "var(--brand-accent)", strokeWidth: 2, r: 3.5 }}
+                    activeDot={{ fill: "var(--brand-accent)", stroke: "var(--brand-bg)", strokeWidth: 2, r: 5.5 }}
+                  />
+                </AreaChart>
               </ResponsiveContainer>
             )}
           </div>
         </div>
 
         {/* Status Distribution */}
-        <div className="border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+        <div className="xl:col-span-2 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
           <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-brand-accent" />
-            <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">02 // Status Distribution</h3>
+            <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">Status Distribution</h3>
           </div>
           <div className="h-72 w-full pt-4">
             {statusCounts.length === 0 ? (
@@ -247,37 +244,13 @@ export const AnalyticsView: React.FC = React.memo(() => {
 
       </div>
 
-      {/* Weekly activity history */}
-      <div className="border border-brand-border bg-transparent p-6 rounded-none space-y-4">
-        <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-brand-accent" />
-          <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">05 // Weekly Playtime History</h3>
-        </div>
-        {!weeklyStats?.weeks?.length ? (
-          <div className="h-32 flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 font-mono text-xs uppercase text-brand-muted">No playtime history yet</div>
-        ) : (
-          <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 items-end h-36" aria-label="Weekly playtime history">
-            {weeklyStats.weeks.map((week) => {
-              const peak = Math.max(1, ...weeklyStats.weeks!.map((item) => item.loggedHours));
-              const height = Math.max(4, Math.round((week.loggedHours / peak) * 100));
-              return <div key={week.weekStart} className="h-full flex flex-col items-center justify-end gap-1.5" title={`${formatPlaytimePrecise(week.loggedHours)} · ${new Date(week.weekStart).toLocaleDateString()}`}>
-                <span className="text-[9px] font-mono text-brand-muted">{week.loggedHours > 0 ? formatPlaytimePrecise(week.loggedHours) : "0h"}</span>
-                <div className="w-full max-w-12 h-24 flex items-end bg-zinc-950 border border-brand-border/50"><div className="w-full bg-brand-accent transition-[height]" style={{ height: `${height}%` }} /></div>
-                <span className="text-[9px] font-mono text-brand-muted">{new Date(week.weekStart).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
-              </div>;
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Row 2: Most Played + Completion Timeline */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {/* Row 2: Most Played (narrow) + Completed Titles (wide) */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
 
         {/* Most Played Titles */}
-        <div className="border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+        <div className="xl:col-span-2 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
           <div className="flex items-center gap-2">
-            <Trophy className="w-4 h-4 text-brand-accent" />
-            <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">03 // Most Played Titles</h3>
+            <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">Most Played Titles</h3>
           </div>
           <div className="h-72 w-full pt-4">
             {mostPlayed.length === 0 ? (
@@ -309,10 +282,9 @@ export const AnalyticsView: React.FC = React.memo(() => {
         </div>
 
         {/* Completed Titles */}
-        <div className="border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+        <div className="xl:col-span-3 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
           <div className="flex items-center gap-2">
-            <Trophy className="w-4 h-4 text-brand-accent" />
-            <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">04 // Completed Titles</h3>
+            <h3 className="text-xs font-mono font-black uppercase tracking-widest text-white">Completed Titles</h3>
           </div>
 
           {/* Completed titles roster */}

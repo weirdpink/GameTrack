@@ -527,7 +527,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             {!deleteConfirm ? (
               <button
                 onClick={() => setDeleteConfirm(true)}
-                className="w-full h-10 flex items-center justify-center gap-2 px-4 rounded-none bg-zinc-900 hover:bg-red-500/10 hover:text-red-400 text-brand-muted text-xs font-black uppercase tracking-wider border border-brand-border hover:border-red-500/35 transition-all cursor-pointer"
+                className="w-full h-10 flex items-center justify-center gap-2 px-4 rounded-none bg-transparent hover:bg-red-500/10 hover:text-red-400 text-brand-muted text-xs font-black uppercase tracking-wider border border-brand-border hover:border-red-500/35 transition-all cursor-pointer"
               >
                 <Trash2 className="w-4 h-4" />
                 Delete Game
@@ -543,7 +543,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 <button
                   onClick={() => setDeleteConfirm(false)}
                   aria-label="Cancel deletion"
-                  className="w-10 h-full bg-zinc-900 hover:bg-zinc-800 text-brand-muted hover:text-white border border-brand-border transition-all cursor-pointer flex items-center justify-center shrink-0"
+                  className="w-10 h-full bg-transparent text-brand-muted hover:text-white border border-brand-border transition-all cursor-pointer flex items-center justify-center shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -588,7 +588,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               ) : (
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-4 h-[34px] rounded-none text-xs font-black uppercase tracking-wider border border-brand-border transition-all cursor-pointer shrink-0"
+                  className="flex items-center gap-2 bg-transparent text-white px-4 h-[34px] rounded-none text-xs font-black uppercase tracking-wider border border-brand-border transition-all cursor-pointer shrink-0"
                 >
                   <Edit2 className="w-3.5 h-3.5 text-brand-accent" />
                   Edit Metadata
@@ -617,7 +617,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="w-full px-4 py-2 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
+                    className="w-full px-4 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
                   />
                 </div>
               </div>
@@ -630,7 +630,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     type="number"
                     value={year}
                     onChange={(e) => setYear(e.target.value)}
-                    className="w-full px-4 py-2 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
+                    className="w-full px-4 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
                   />
                 </div>
                 <div className="space-y-1">
@@ -640,7 +640,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     type="date"
                     value={dateCompleted || ""}
                     onChange={(e) => setDateCompleted(e.target.value)}
-                    className="w-full px-4 py-2 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
+                    className="w-full px-4 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
                   />
                 </div>
                 <div className="space-y-1">
@@ -657,7 +657,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                         value={hoursPlayed}
                         onChange={(e) => setHoursPlayed(e.target.value)}
                         placeholder="Hours"
-                        className="w-full pl-4 pr-7 py-2 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
+                        className="w-full pl-4 pr-7 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-black text-brand-muted pointer-events-none">H</span>
                     </div>
@@ -670,7 +670,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                         value={minutesPlayed}
                         onChange={(e) => setMinutesPlayed(e.target.value)}
                         placeholder="Minutes"
-                        className="w-full pl-4 pr-7 py-2 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
+                        className="w-full pl-4 pr-7 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-black text-brand-muted pointer-events-none">M</span>
                     </div>
@@ -768,7 +768,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                         className={`h-9 sm:h-10 px-3 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center ${
                           active
                             ? activeStyles[s.value]
-                            : "bg-zinc-900/60 border-brand-border/50 text-brand-muted hover:text-white hover:border-zinc-600"
+                            : "bg-zinc-900/60 border-brand-border/50 text-brand-muted hover:text-white hover:border-brand-accent/40"
                         }`}
                       >
                         {s.label}
@@ -788,7 +788,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-colors ${
                         selectedPlatforms.includes(plat.id)
                           ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
-                          : "bg-zinc-950 border-brand-border text-brand-muted hover:text-white hover:border-zinc-600"
+                          : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
                       }`}
                     >
                       <input
@@ -815,7 +815,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   value={synopsis}
                   onChange={(e) => { setSynopsis(e.target.value); synopsisDirtyRef.current = true; }}
                   rows={8}
-                  className="w-full min-h-[220px] px-4 py-3 bg-zinc-950 border border-brand-border rounded-none text-xs sm:text-[13px] font-normal font-sans text-zinc-200 leading-relaxed focus:outline-none focus:border-brand-accent resize-y"
+                  className="w-full min-h-[220px] px-4 py-3 bg-brand-bg border border-brand-border rounded-none text-xs sm:text-[13px] font-normal font-sans text-zinc-200 leading-relaxed focus:outline-none focus:border-brand-accent resize-y"
                   placeholder="Enter synopsis or sync from IGDB"
                 />
               </div>
@@ -950,7 +950,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     onChange={(e) => setPosterUrlInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") handleApplyPosterUrl(); }}
                     placeholder="https://example.com/poster.jpg"
-                    className="flex-1 min-w-0 px-3 py-2 bg-zinc-950 border border-brand-border rounded-none text-xs font-mono text-white focus:outline-none focus:border-brand-accent placeholder:text-zinc-600"
+                    className="flex-1 min-w-0 px-3 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-mono text-white focus:outline-none focus:border-brand-accent placeholder:text-zinc-600"
                   />
                   <button
                     type="button"
@@ -973,8 +973,8 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               {/* Option 2: upload from device */}
               <label
                 htmlFor="poster-modal-file"
-                className={`w-full h-11 flex items-center justify-center gap-2 px-4 rounded-none bg-zinc-900 border border-brand-border text-xs font-black uppercase tracking-wider transition-all select-none ${
-                  posterSaving ? "opacity-50 cursor-not-allowed" : "hover:bg-zinc-800 hover:text-white text-brand-muted cursor-pointer"
+                className={`w-full h-11 flex items-center justify-center gap-2 px-4 rounded-none bg-transparent border border-brand-border text-xs font-black uppercase tracking-wider transition-all select-none ${
+                  posterSaving ? "opacity-50 cursor-not-allowed" : "hover:bg-brand-accent/[0.03] hover:text-white text-brand-muted cursor-pointer"
                 }`}
               >
                 {posterSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageUp className="w-4 h-4 text-brand-accent" />}

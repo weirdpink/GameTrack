@@ -167,7 +167,7 @@ export const WishlistView: React.FC = () => {
         <div className="flex items-center gap-3 shrink-0">
           <button
             onClick={() => setActiveTab("library")}
-            className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-brand-border text-white px-6 py-3 rounded-none text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+            className="flex items-center gap-2 bg-transparent border border-brand-border text-white px-6 py-3 rounded-none text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Library
@@ -191,7 +191,7 @@ export const WishlistView: React.FC = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search IGDB for games you want..."
-            className="w-full pl-11 pr-10 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors h-[38px]"
+            className="w-full pl-11 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors h-[38px]"
           />
           {query && (
             <button
@@ -220,7 +220,7 @@ export const WishlistView: React.FC = () => {
             className={`px-5 py-2.5 border rounded-none text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer select-none shrink-0 h-[38px] ${
               selectMode
                 ? "bg-brand-accent border-brand-accent text-brand-accent-ink font-black"
-                : "bg-zinc-950 border-brand-border text-white hover:bg-zinc-900"
+                : "bg-zinc-950 border-brand-border text-white hover:bg-brand-accent/[0.03]"
             }`}
             title={selectMode ? "Exit Select Mode" : "Select Multiple Items"}
           >
@@ -304,7 +304,7 @@ export const WishlistView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-brand-muted hover:text-white border border-brand-border text-xs font-black uppercase rounded-none cursor-pointer transition-all"
+                    className="px-3 py-2 bg-transparent text-brand-muted hover:text-white border border-brand-border text-xs font-black uppercase rounded-none cursor-pointer transition-all"
                   >
                     Cancel
                   </button>
@@ -314,7 +314,7 @@ export const WishlistView: React.FC = () => {
                   type="button"
                   disabled={selectedIds.size === 0}
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="px-4 py-2 bg-zinc-900 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/40 text-brand-muted disabled:opacity-40 disabled:hover:bg-zinc-900 disabled:hover:text-brand-muted disabled:hover:border-brand-border border border-brand-border text-xs font-black uppercase tracking-wider rounded-none cursor-pointer transition-all flex items-center gap-2"
+                  className="px-4 py-2 bg-transparent hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/40 text-brand-muted disabled:opacity-40 disabled:hover:bg-brand-accent/[0.03] disabled:hover:text-brand-muted disabled:hover:border-brand-border border border-brand-border text-xs font-black uppercase tracking-wider rounded-none cursor-pointer transition-all flex items-center gap-2"
                 >
                   <Trash2 className="w-4 h-4 text-red-400" />
                   <span>Remove ({selectedIds.size})</span>
@@ -324,7 +324,7 @@ export const WishlistView: React.FC = () => {
               <button
                 type="button"
                 onClick={exitSelectMode}
-                className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-brand-border text-xs font-black uppercase tracking-wider rounded-none cursor-pointer transition-all flex items-center gap-1"
+                className="px-3 py-2 bg-transparent text-zinc-300 hover:text-white border border-brand-border text-xs font-black uppercase tracking-wider rounded-none cursor-pointer transition-all flex items-center gap-1"
               >
                 <X className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Done</span>
@@ -355,7 +355,7 @@ export const WishlistView: React.FC = () => {
               </button>
               <button
                 onClick={() => setActiveTab("discover")}
-                className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-brand-border text-white px-6 py-2.5 text-xs font-black uppercase tracking-wider transition-all rounded-none cursor-pointer"
+                className="flex items-center gap-2 bg-transparent border border-brand-border text-white px-6 py-2.5 text-xs font-black uppercase tracking-wider transition-all rounded-none cursor-pointer"
               >
                 <Compass className="w-4 h-4" />
                 Go to Discover

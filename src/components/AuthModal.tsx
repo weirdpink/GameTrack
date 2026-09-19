@@ -148,7 +148,7 @@ export const AuthModal: React.FC = React.memo(() => {
                   href="https://steamcommunity.com/my/"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/60 text-brand-accent text-[11px] font-sans font-black uppercase tracking-widest transition-all cursor-pointer"
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-transparent border border-brand-border hover:border-brand-accent/60 text-brand-accent text-[11px] font-sans font-black uppercase tracking-widest transition-all cursor-pointer"
                 >
                   <Link2 className="w-3.5 h-3.5" />
                   steamcommunity.com/my/

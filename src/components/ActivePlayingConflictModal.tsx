@@ -110,7 +110,7 @@ export const ActivePlayingConflictModal: React.FC = React.memo(() => {
               type="button"
               disabled={processing}
               onClick={() => closePlayingConflict()}
-              className="py-3 px-5 bg-zinc-900 hover:bg-zinc-800 text-brand-muted hover:text-white border border-brand-border font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50"
+              className="py-3 px-5 bg-transparent text-brand-muted hover:text-white border border-brand-border font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>

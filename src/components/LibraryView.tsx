@@ -2,11 +2,10 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import {
-  Search, SlidersHorizontal, Plus, Clock, RefreshCw, ChevronDown, X, Trophy, GripVertical, Heart, CheckSquare, Check, Trash2, Loader2,
+  Search, SlidersHorizontal, Plus, RefreshCw, ChevronDown, X, Trophy, GripVertical, Heart, CheckSquare, Check, Trash2, Loader2,
   Bookmark, Play, Repeat
 } from "lucide-react";
 import { Game } from "../types";
-import { formatPlaytimePrecise } from "../utils/time";
 
 import { STATUSES, getStatusLabel, getStatusMarkerColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass } from "../constants";
 import { PosterImage } from "./PosterImage";
@@ -40,7 +39,6 @@ export const LibraryView: React.FC = () => {
     if (searchFocusToken > 0) searchInputRef.current?.focus();
   }, [searchFocusToken]);
 
-  useEffect(() => {
   // Stay in sync when the filter is changed elsewhere (e.g. reset) — but
   // never clobber text the user is actively typing.
   useEffect(() => {
@@ -298,7 +296,7 @@ export const LibraryView: React.FC = () => {
             GAME<br />LIBRARY
           </h1>
           <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
-            Review, manage, and log your game collection.
+            Review, manage, and log your game library.
           </p>
         </div>
         
@@ -315,7 +313,7 @@ export const LibraryView: React.FC = () => {
             onClick={() => setActiveTab("wishlist")}
             title={`Open Wishlist${wishlist.length > 0 ? ` (${wishlist.length})` : ""}`}
             aria-label={`Open wishlist (${wishlist.length} items)`}
-            className="relative p-3 bg-zinc-900 hover:bg-zinc-800 border border-brand-border text-brand-muted hover:text-white transition-all cursor-pointer"
+            className="relative p-3 bg-transparent border border-brand-border text-brand-muted hover:text-white transition-all cursor-pointer"
           >
             <Heart className="w-4 h-4" />
             {wishlist.length > 0 && (
@@ -341,7 +339,7 @@ export const LibraryView: React.FC = () => {
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
               placeholder="Filter by title..."
-              className="w-full pl-11 pr-10 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors"
+              className="w-full pl-11 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors"
             />
             {localSearch && (
               <button
@@ -362,7 +360,7 @@ export const LibraryView: React.FC = () => {
             className={`px-5 py-2.5 border rounded-none text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer select-none shrink-0 h-[38px] ${
               showFilters 
                 ? "bg-brand-accent border-brand-accent text-brand-accent-ink font-black" 
-                : "bg-zinc-950 border-brand-border text-white hover:bg-zinc-900"
+                : "bg-zinc-950 border-brand-border text-white hover:bg-brand-accent/[0.03]"
             }`}
           >
             <SlidersHorizontal className="w-4 h-4" />
@@ -385,7 +383,7 @@ export const LibraryView: React.FC = () => {
             className={`px-4 py-2.5 border rounded-none text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer select-none shrink-0 h-[38px] ${
               selectMode
                 ? "bg-brand-accent border-brand-accent text-brand-accent-ink font-black"
-                : "bg-zinc-950 border-brand-border text-white hover:bg-zinc-900"
+                : "bg-zinc-950 border-brand-border text-white hover:bg-brand-accent/[0.03]"
             }`}
             title={selectMode ? "Exit Select Mode" : "Select Multiple Games"}
           >
@@ -411,7 +409,7 @@ export const LibraryView: React.FC = () => {
                       id="filter-status"
                       value={filters.status}
                       onChange={(e) => setFilter("status", e.target.value)}
-                      className="w-full pl-3 pr-10 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
+                      className="w-full pl-3 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
                     >
                       <option value="">All Statuses</option>
                       {statusOptions.map(s => (
@@ -432,7 +430,7 @@ export const LibraryView: React.FC = () => {
                     id="filter-platform"
                     value={filters.platform}
                     onChange={(e) => setFilter("platform", e.target.value)}
-                    className="w-full pl-3 pr-10 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
+                    className="w-full pl-3 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
                   >
                     <option value="">All Platforms</option>
                     {platformOptions.map(p => (
@@ -455,7 +453,7 @@ export const LibraryView: React.FC = () => {
                     id="filter-sort"
                     value={filters.sort}
                     onChange={(e) => setFilter("sort", e.target.value)}
-                    className="w-full pl-3 pr-10 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
+                    className="w-full pl-3 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
                   >
                     <option value="recent">Recently Added</option>
                     <option value="rating">Highest Rating</option>
@@ -474,7 +472,7 @@ export const LibraryView: React.FC = () => {
               <div className="flex flex-col justify-end">
                 <button
                   onClick={handleReset}
-                  className="w-full py-2.5 bg-zinc-950 hover:bg-zinc-900 border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-brand-muted hover:text-white transition-colors flex items-center justify-center gap-2 h-[38px] cursor-pointer"
+                  className="w-full py-2.5 bg-transparent border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-brand-muted hover:text-white transition-colors flex items-center justify-center gap-2 h-[38px] cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   Reset Filters
@@ -536,7 +534,7 @@ export const LibraryView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => { setDragOrder(null); setDraggingId(null); }}
-                className="px-3 py-1.5 bg-zinc-950 hover:bg-zinc-900 border border-brand-border rounded-none text-[11px] font-black uppercase tracking-wider text-brand-muted hover:text-white transition-colors cursor-pointer"
+                className="px-3 py-1.5 bg-transparent border border-brand-border rounded-none text-[11px] font-black uppercase tracking-wider text-brand-muted hover:text-white transition-colors cursor-pointer"
               >
                 Discard Changes
               </button>
@@ -590,7 +588,7 @@ export const LibraryView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-brand-muted hover:text-white border border-brand-border text-xs font-black uppercase rounded-none cursor-pointer transition-all"
+                  className="px-3 py-2 bg-transparent text-brand-muted hover:text-white border border-brand-border text-xs font-black uppercase rounded-none cursor-pointer transition-all"
                 >
                   Cancel
                 </button>
@@ -601,7 +599,7 @@ export const LibraryView: React.FC = () => {
                 type="button"
                 disabled={selectedIds.size === 0}
                 onClick={() => setShowDeleteConfirm(true)}
-                className="px-4 py-2 bg-zinc-900 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/40 text-brand-muted disabled:opacity-40 disabled:hover:bg-zinc-900 disabled:hover:text-brand-muted disabled:hover:border-brand-border border border-brand-border text-xs font-black uppercase tracking-wider rounded-none cursor-pointer transition-all flex items-center gap-2"
+                className="px-4 py-2 bg-transparent hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/40 text-brand-muted disabled:opacity-40 disabled:hover:bg-brand-accent/[0.03] disabled:hover:text-brand-muted disabled:hover:border-brand-border border border-brand-border text-xs font-black uppercase tracking-wider rounded-none cursor-pointer transition-all flex items-center gap-2"
               >
                 <Trash2 className="w-4 h-4 text-red-400" />
                 <span>Delete ({selectedIds.size})</span>
@@ -612,7 +610,7 @@ export const LibraryView: React.FC = () => {
             <button
               type="button"
               onClick={exitSelectMode}
-              className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-brand-border text-xs font-black uppercase tracking-wider rounded-none cursor-pointer transition-all flex items-center gap-1"
+              className="px-3 py-2 bg-transparent text-zinc-300 hover:text-white border border-brand-border text-xs font-black uppercase tracking-wider rounded-none cursor-pointer transition-all flex items-center gap-1"
             >
               <X className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Done</span>
@@ -670,7 +668,6 @@ export const LibraryView: React.FC = () => {
               onDragStart={handleDragStart}
               onDragOverCard={handleDragOverCard}
               onDragEnd={handleDragEnd}
-              showPlaytime={customizations.showPlaytimeBadge}
               showRating={customizations.showRatingBadge}
               density={customizations.density}
               selectMode={selectMode}
@@ -701,7 +698,6 @@ interface LibraryGameCardProps {
   onDragStart?: (game: Game) => void;
   onDragOverCard?: (game: Game) => void;
   onDragEnd?: () => void;
-  showPlaytime?: boolean;
   showRating?: boolean;
   density?: "comfortable" | "compact";
   selectMode?: boolean;
@@ -710,7 +706,7 @@ interface LibraryGameCardProps {
 }
 
 const LibraryGameCard = React.memo<LibraryGameCardProps>(({ 
-  game, onClick, reorderable, isDragging, onDragStart, onDragOverCard, onDragEnd, showPlaytime = true, showRating = true,
+  game, onClick, reorderable, isDragging, onDragStart, onDragOverCard, onDragEnd, showRating = true,
   density = "comfortable",
   selectMode = false, selected = false, onToggleSelect 
 }) => {
@@ -790,34 +786,6 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
             {game.critic_score}
           </div>
         )}
-      </div>
-
-      {/* Game Metadata Info */}
-      <div className={`${density === "compact" ? "p-2" : "p-4"} flex-1 flex flex-col justify-between`}>
-        <div>
-          <h4 className={`font-bold ${density === "compact" ? "text-xs" : "text-sm"} transition-colors line-clamp-1 uppercase tracking-tight ${game.status === "completed" ? "text-brand-accent" : "text-white group-hover:text-brand-accent"}`}>
-            {game.title}
-          </h4>
-          {/* Launch year on the left, time played on the right */}
-          <div className={`border-t border-brand-border ${density === "compact" ? "mt-1 pt-1" : "mt-2 pt-2"} flex items-center justify-between gap-2`}>
-            <p className="text-[11px] text-brand-muted font-mono uppercase font-bold">
-              {game.year ?? "—"}
-            </p>
-            {showPlaytime && (
-              game.hide_playtime === 1 ? (
-                <div className="flex items-center gap-1 font-mono text-[11px] font-black text-zinc-600">
-                  <Clock className="w-3 h-3 text-zinc-600" />
-                  <span>—</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 font-mono text-[11px] font-black text-zinc-400">
-                  <Clock className="w-3 h-3 text-brand-accent" />
-                  <span>{formatPlaytimePrecise(game.playtime)}</span>
-                </div>
-              )
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

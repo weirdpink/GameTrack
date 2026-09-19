@@ -377,7 +377,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                 }}
                 onFocus={() => setShowSuggestions(true)}
                 placeholder="ENTER GAME TITLE..."
-                className="w-full pl-10 pr-4 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
+                className="w-full pl-10 pr-4 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
               />
 
               {/* Autocomplete Suggestions */}
@@ -414,7 +414,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                         tabIndex={0}
                         role="option"
                         aria-selected={title === suggestion.title}
-                        className="flex items-center gap-3 p-2.5 hover:bg-zinc-900 cursor-pointer border-b border-brand-border/40 last:border-none transition-colors text-left focus:bg-zinc-900 focus:outline-none"
+                        className="flex items-center gap-3 p-2.5 hover:bg-brand-accent/[0.03] cursor-pointer border-b border-brand-border/40 last:border-none transition-colors text-left focus:bg-zinc-900 focus:outline-none"
                       >
                         {suggestion.poster_url ? (
                           <img
@@ -468,7 +468,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                   value={year}
                   onChange={(e) => setYear(e.target.value)}
                   placeholder="E.g. 2023"
-                  className="w-full pl-10 pr-4 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
+                  className="w-full pl-10 pr-4 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
                 />
               </div>
             </div>
@@ -484,7 +484,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                   value={genres}
                   onChange={(e) => setGenres(e.target.value)}
                   placeholder="RPG, ACTION, ADVENTURE"
-                  className="w-full pl-10 pr-4 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
+                  className="w-full pl-10 pr-4 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
                 />
               </div>
             </div>
@@ -561,7 +561,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                     value={playtimeHours}
                     onChange={(e) => setPlaytimeHours(e.target.value)}
                     placeholder="0"
-                    className="w-full pl-4 pr-7 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
+                    className="w-full pl-4 pr-7 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-black text-brand-muted pointer-events-none">H</span>
                 </div>
@@ -574,7 +574,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                     value={playtimeMinutes}
                     onChange={(e) => setPlaytimeMinutes(e.target.value)}
                     placeholder="0"
-                    className="w-full pl-4 pr-7 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
+                    className="w-full pl-4 pr-7 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-black text-brand-muted pointer-events-none">M</span>
                 </div>
@@ -596,7 +596,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                   value={criticScore}
                   onChange={(e) => setCriticScore(e.target.value)}
                   placeholder="E.g. 92"
-                  className="w-full pl-10 pr-4 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
+                  className="w-full pl-10 pr-4 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
                 />
               </div>
             </div>
@@ -611,7 +611,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                   id="add-game-status"
                   value={status}
                   onChange={(e) => setStatus(e.target.value as "backlog" | "playing" | "completed" | "endless")}
-                  className="w-full pl-4 pr-10 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none disabled:cursor-not-allowed"
+                  className="w-full pl-4 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none disabled:cursor-not-allowed"
                 >
                   <option value="backlog">Backlog</option>
                   <option value="playing">Playing</option>
@@ -636,7 +636,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-none border text-[11px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
                       selectedPlatforms.includes(platform.id)
                         ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
-                        : "bg-zinc-950 border-brand-border text-brand-muted hover:text-white hover:border-zinc-600"
+                        : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
                     }`}
                   >
                     <input
@@ -666,12 +666,12 @@ export const AddGameModal: React.FC = React.memo(() => {
                 value={posterUrl}
                 onChange={(e) => setPosterUrl(e.target.value)}
                 placeholder="https://example.com/poster.jpg"
-                className="flex-1 px-4 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
+                className="flex-1 px-4 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
               />
               <button
                 type="button"
                 onClick={() => posterFileInputRef.current?.click()}
-                className="px-4 py-2.5 bg-zinc-900 border border-brand-border text-xs font-bold uppercase tracking-wider text-zinc-300 hover:bg-zinc-800 hover:text-white focus-visible:outline-2 focus-visible:outline-brand-accent cursor-pointer text-center select-none shrink-0 flex items-center justify-center"
+                className="px-4 py-2.5 bg-transparent border border-brand-border text-xs font-bold uppercase tracking-wider text-zinc-300 hover:text-white focus-visible:outline-2 focus-visible:outline-brand-accent cursor-pointer text-center select-none shrink-0 flex items-center justify-center"
               >
                 Upload Poster
               </button>
@@ -716,7 +716,7 @@ export const AddGameModal: React.FC = React.memo(() => {
               type="button"
               onClick={() => setAddGameOpen(false)}
               disabled={submitting}
-              className="py-3 px-4 bg-zinc-900 hover:bg-zinc-800 text-brand-muted hover:text-white border border-brand-border rounded-none text-xs font-black uppercase tracking-widest transition-all cursor-pointer text-center disabled:opacity-50 disabled:cursor-not-allowed"
+              className="py-3 px-4 bg-transparent text-brand-muted hover:text-white border border-brand-border rounded-none text-xs font-black uppercase tracking-widest transition-all cursor-pointer text-center disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel
             </button>

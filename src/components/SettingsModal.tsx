@@ -240,7 +240,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                       type="button"
                       aria-label="About library sync"
                       aria-describedby="steam-sync-info"
-                      className="w-4 h-4 flex items-center justify-center rounded-full border border-brand-border text-brand-muted hover:text-brand-accent hover:border-brand-accent/60 transition-colors cursor-help"
+                      className="w-4 h-4 flex items-center justify-center rounded-none border border-brand-border text-brand-muted hover:text-white transition-colors cursor-help"
                     >
                       <Info className="w-2.5 h-2.5" />
                     </button>
@@ -287,7 +287,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                         href={/^https?:\/\//i.test(steamSettings.profile || "") ? steamSettings.profile : `https://steamcommunity.com/profiles/${steamSettings.steamId}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/60 text-brand-accent text-[11px] font-sans font-black uppercase tracking-widest transition-all cursor-pointer"
+                        className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-transparent border border-brand-border hover:border-brand-accent/60 text-brand-accent text-[11px] font-sans font-black uppercase tracking-widest transition-all cursor-pointer"
                       >
                         <ExternalLink className="w-3 h-3" />
                         View Steam Profile
@@ -300,7 +300,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                             setRelinkMode(true);
                             setSteamProfile("");
                           }}
-                          className="flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/50 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
+                          className="flex items-center justify-center gap-2 py-2.5 bg-transparent border border-brand-border hover:border-brand-accent/50 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
                         >
                           <Unlink className="w-4 h-4 text-brand-accent" />
                           Re-link
@@ -359,7 +359,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                           type="button"
                           onClick={handleConnectSteam}
                           disabled={connectingSteam || syncingSteam}
-                          className="flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/50 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer disabled:opacity-50"
+                          className="flex items-center justify-center gap-2 py-2.5 bg-transparent border border-brand-border hover:border-brand-accent/50 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer disabled:opacity-50"
                         >
                           {connectingSteam ? <Loader2 className="w-4 h-4 animate-spin text-brand-accent" /> : <Link2 className="w-4 h-4 text-brand-accent" />}
                           Connect
@@ -490,32 +490,6 @@ export const SettingsModal: React.FC = React.memo(() => {
                   {/* Badges Toggles */}
                   <div className="pt-2 border-t border-brand-border/40 space-y-2.5">
                     <div className="flex items-center justify-between group">
-                      <span id="settings-toggle-playtime-label" className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
-                        Show Playtime Badges
-                      </span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={customizations.showPlaytimeBadge}
-                        aria-labelledby="settings-toggle-playtime-label"
-                        onClick={() => updateCustomizations({ showPlaytimeBadge: !customizations.showPlaytimeBadge })}
-                        className={`relative w-10 h-5.5 shrink-0 border transition-colors cursor-pointer ${
-                          customizations.showPlaytimeBadge
-                            ? "bg-brand-accent border-brand-accent"
-                            : "bg-zinc-900 border-brand-border"
-                        }`}
-                      >
-                        <span
-                          className={`absolute top-1/2 -translate-y-1/2 w-4 h-3.5 transition-all duration-200 ${
-                            customizations.showPlaytimeBadge
-                              ? "left-[21px] bg-brand-accent-ink"
-                              : "left-0.5 bg-brand-muted"
-                          }`}
-                        />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center justify-between group">
                       <span id="settings-toggle-critic-label" className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
                         Show Critic Scores
                       </span>
@@ -643,8 +617,8 @@ export const SettingsModal: React.FC = React.memo(() => {
                   <div className="space-y-2 border-t border-brand-border/40 pt-4">
                     <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Library Exports</p>
                     <div className="grid grid-cols-2 gap-2">
-                      <button type="button" onClick={exportLibraryMarkdown} className="flex items-center justify-center gap-2 py-2 bg-zinc-900 hover:bg-zinc-800 border border-brand-border text-white text-[10px] font-black uppercase tracking-wider cursor-pointer"><FileText className="w-3.5 h-3.5 text-brand-accent" /> Markdown</button>
-                      <button type="button" onClick={exportLibraryCsv} className="flex items-center justify-center gap-2 py-2 bg-zinc-900 hover:bg-zinc-800 border border-brand-border text-white text-[10px] font-black uppercase tracking-wider cursor-pointer"><Table2 className="w-3.5 h-3.5 text-brand-accent" /> CSV</button>
+                      <button type="button" onClick={exportLibraryMarkdown} className="flex items-center justify-center gap-2 py-2 bg-transparent border border-brand-border text-white text-[10px] font-black uppercase tracking-wider cursor-pointer"><FileText className="w-3.5 h-3.5 text-brand-accent" /> Markdown</button>
+                      <button type="button" onClick={exportLibraryCsv} className="flex items-center justify-center gap-2 py-2 bg-transparent border border-brand-border text-white text-[10px] font-black uppercase tracking-wider cursor-pointer"><Table2 className="w-3.5 h-3.5 text-brand-accent" /> CSV</button>
                     </div>
                   </div>
 
@@ -659,7 +633,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                       <span>Posters <b className="text-white">{formatBytes(storageStats.posterSize)}</b></span>
                       <span>Backups <b className="text-white">{formatBytes(storageStats.backupSize)}</b></span>
                     </div>}
-                    <button type="button" onClick={async () => { if (window.confirm("Remove only poster files that are no longer referenced by any game or wishlist item?")) await cleanOrphanedPosters(); }} className="w-full flex items-center justify-center gap-2 py-2 bg-zinc-900 hover:bg-red-500/10 border border-brand-border hover:border-red-500/40 text-brand-muted hover:text-red-400 text-[10px] font-black uppercase tracking-wider cursor-pointer"><Trash2 className="w-3.5 h-3.5" /> Clean Orphaned Posters</button>
+                    <button type="button" onClick={async () => { if (window.confirm("Remove only poster files that are no longer referenced by any game or wishlist item?")) await cleanOrphanedPosters(); }} className="w-full flex items-center justify-center gap-2 py-2 bg-transparent hover:bg-red-500/10 border border-brand-border hover:border-red-500/40 text-brand-muted hover:text-red-400 text-[10px] font-black uppercase tracking-wider cursor-pointer"><Trash2 className="w-3.5 h-3.5" /> Clean Orphaned Posters</button>
                   </div>
 
                   <div className="space-y-2 border-t border-brand-border/40 pt-4">
@@ -719,7 +693,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                       type="button"
                       onClick={() => libraryInputRef.current?.click()}
                       disabled={importingLibrary}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-zinc-700 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
+                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-transparent border border-brand-border hover:border-zinc-700 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
                     >
                       {importingLibrary ? <Loader2 className="w-4 h-4 animate-spin text-brand-accent" /> : <Upload className="w-4 h-4 text-brand-accent" />}
                       Import Library JSON
@@ -745,7 +719,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                       type="button"
                       aria-label="About custom platform tags"
                       aria-describedby="custom-tags-info"
-                      className="w-4 h-4 flex items-center justify-center rounded-full border border-brand-border text-brand-muted hover:text-brand-accent hover:border-brand-accent/60 transition-colors cursor-help"
+                      className="w-4 h-4 flex items-center justify-center rounded-none border border-brand-border text-brand-muted hover:text-white transition-colors cursor-help"
                     >
                       <Info className="w-2.5 h-2.5" />
                     </button>
@@ -845,7 +819,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                   ) : (
                     <button
                       onClick={() => setShowWipeConfirm(true)}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-none bg-zinc-900 hover:bg-red-500/10 hover:text-red-400 text-brand-muted text-xs font-black uppercase tracking-wider border border-brand-border hover:border-red-500/35 transition-all cursor-pointer"
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-none bg-transparent hover:bg-red-500/10 hover:text-red-400 text-brand-muted text-xs font-black uppercase tracking-wider border border-brand-border hover:border-red-500/35 transition-all cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                       Decommission Database

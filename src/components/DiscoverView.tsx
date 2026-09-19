@@ -8,8 +8,21 @@ import { PosterImage } from "./PosterImage";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { libraryGridClass } from "../constants";
 
+// IGDB genre names differ from our dropdown labels — map every option to the
+// exact IGDB genre name(s). Matching is case-insensitive; see filter below.
+// IGDB has no "Action" genre, so it maps to the action-oriented genres.
 const GENRE_ALIASES: Record<string, string[]> = {
+  Action: ["Fighting", "Hack and slash/Beat 'em up", "Arcade"],
   RPG: ["Role-playing (RPG)"],
+  Shooter: ["Shooter"],
+  Adventure: ["Adventure", "Point-and-click"],
+  Sports: ["Sport"],
+  Racing: ["Racing"],
+  Indie: ["Indie"],
+  Strategy: ["Strategy", "Real Time Strategy (RTS)", "Turn-based strategy (TBS)", "Tactical"],
+  Platformer: ["Platform"],
+  Simulation: ["Simulator"],
+  Puzzle: ["Puzzle", "Quiz/Trivia", "Card & Board Game"],
 };
 
 export const DiscoverView: React.FC = () => {
@@ -199,10 +212,9 @@ export const DiscoverView: React.FC = () => {
 
   const filteredGamesToDisplay = React.useMemo(() => {
     if (!selectedGenre) return gamesToDisplay;
-    // IGDB names some genres differently than our labels ("Role-playing (RPG)").
-    const aliases = [selectedGenre, ...(GENRE_ALIASES[selectedGenre] || [])];
+    const aliases = (GENRE_ALIASES[selectedGenre] || [selectedGenre]).map(a => a.toLowerCase());
     return gamesToDisplay.filter(game =>
-      game.genres && game.genres.some((g: string) => aliases.some(a => g.toLowerCase() === a.toLowerCase()))
+      Array.isArray(game.genres) && game.genres.some((g: string) => aliases.includes(g.toLowerCase()))
     );
   }, [gamesToDisplay, selectedGenre]);
 
@@ -233,7 +245,7 @@ export const DiscoverView: React.FC = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search Witcher, Elden Ring, Doom, Metroid, Zelda..."
-            className="w-full pl-11 pr-10 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors"
+            className="w-full pl-11 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors"
           />
           {query && (
             <button
@@ -270,7 +282,7 @@ export const DiscoverView: React.FC = () => {
             id="discover-genre"
             value={selectedGenre}
             onChange={(e) => setSelectedGenre(e.target.value)}
-            className="w-full pl-4 pr-10 py-2.5 bg-zinc-950 border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
+            className="w-full pl-4 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
           >
             <option value="">All Genres</option>
             <option value="Action">Action</option>
@@ -496,7 +508,7 @@ export const DiscoverView: React.FC = () => {
                         className={`shrink-0 flex items-center justify-center gap-1.5 px-3 py-3 border rounded-none text-[11px] font-black uppercase tracking-widest transition-colors cursor-pointer ${
                           isWishlisted(infoModalGame.igdb_id)
                             ? "bg-brand-accent/10 border-brand-accent/35 text-brand-accent hover:bg-brand-accent/20"
-                            : "bg-zinc-900 hover:bg-zinc-800 border-brand-border text-brand-muted hover:text-brand-accent"
+                            : "bg-transparent border-brand-border text-brand-muted hover:text-brand-accent"
                         }`}
                       >
                         {isWishlisted(infoModalGame.igdb_id) ? (

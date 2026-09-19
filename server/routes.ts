@@ -54,34 +54,6 @@ function logPlaytimeDelta(gameId: number, hours: number, loggedAt: number): void
   logPlaytimeInsert.run(gameId, hours, loggedAt);
 }
 
-function weekStartAt(ts: number): number {
-  const d = new Date(ts);
-  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
-  monday.setHours(0, 0, 0, 0);
-  return monday.getTime();
-}
-
-function currentWeekStart(): number {
-  return weekStartAt(Date.now());
-}
-
-function weeklyPlaytimeSeries(weeks: number): { weekStart: number; loggedHours: number }[] {
-  const current = currentWeekStart();
-  const oldest = current - (weeks - 1) * 7 * 24 * 60 * 60 * 1000;
-  const rows = db
-    .prepare("SELECT hours, logged_at FROM playtime_entries WHERE logged_at >= ?")
-    .all(oldest) as { hours: number; logged_at: number }[];
-  const buckets = new Map<number, number>();
-  for (let i = 0; i < weeks; i++) buckets.set(current - i * 7 * 24 * 60 * 60 * 1000, 0);
-  for (const row of rows) {
-    const start = weekStartAt(row.logged_at);
-    if (buckets.has(start)) buckets.set(start, (buckets.get(start) || 0) + row.hours);
-  }
-  return [...buckets.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([weekStart, hours]) => ({ weekStart, loggedHours: Math.round(hours * 100) / 100 }));
-}
-
 /** Shown whenever IGDB rejects the stored credentials — tells the operator the fix. */
 const IGDB_SETUP_HINT =
   "IGDB is not reachable with the configured credentials. Set valid IGDB_CLIENT_ID / IGDB_CLIENT_SECRET (Twitch developer app) in .env and restart the server.";
@@ -601,8 +573,6 @@ apiRouter.get("/analytics", (_req: Request, res: Response) => {
       ORDER BY updated_at DESC
     `).all(thresholdMs).map(parseGame);
 
-    const playtimeWeeks = weeklyPlaytimeSeries(8);
-
     res.json({
       summary: {
         total_games: summary.total_games || 0,
@@ -614,7 +584,6 @@ apiRouter.get("/analytics", (_req: Request, res: Response) => {
       },
       genreAnalytics,
       recentActivity,
-      playtimeWeeks,
     });
   } catch (err) {
     console.error("GET /api/analytics error:", err);
@@ -1136,7 +1105,6 @@ apiRouter.delete("/wipe", (_req: Request, res: Response) => {
   try {
     const wipe = db.transaction(() => {
       stmts.deleteAllGames.run();
-      db.exec("DELETE FROM collections");
       db.exec("DELETE FROM playtime_entries");
     });
     wipe();
@@ -1294,13 +1262,18 @@ apiRouter.get("/discover/trending", async (req: Request, res: Response) => {
     const { page, limit } = parsed.data;
     const pageNum = Math.min(100, Math.max(1, parseInt(page.toString()) || 1));
     const pageSize = Math.min(30, Math.max(1, parseInt(limit.toString()) || 15));
-    const offset = (pageNum - 1) * pageSize;
 
-    const query = `fields name, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug; where total_rating_count > 50; sort total_rating_count desc; limit ${pageSize}; offset ${offset};`;
+    // Do NOT pass offset into IGDB: cachedFetchFromIgdb keys its cache on the
+    // exact query string, so every page would bypass the cache. IGDB also
+    // degrades on deep offsets. Instead, always fetch the first 300 rated
+    // titles through the cache and paginate the slices locally.
+    const MAX_FEED = 300;
+    const query = `fields name, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug; where total_rating_count > 50; sort total_rating_count desc; limit ${MAX_FEED};`;
     const data = await cachedFetchFromIgdb("games", query);
 
-    const results = Array.isArray(data) ? data.map(mapIgdbGame) : [];
-    res.json(results);
+    const all = Array.isArray(data) ? data.map(mapIgdbGame) : [];
+    const startIndex = (pageNum - 1) * pageSize;
+    res.json(all.slice(startIndex, startIndex + pageSize));
   } catch (error: unknown) {
     respondIgdbFailure(error, res, "Failed to fetch trending games from IGDB");
   }
@@ -1457,160 +1430,6 @@ apiRouter.post("/wishlist/:id/own", (req: Request, res: Response) => {
   }
 });
 
-// ── COLLECTIONS ─────────────────────────────────────────────────────
-// User-named shelves ("Co-op", "Horror October") grouping library games.
-// Membership is a pure link table — games keep their status and metadata.
-
-const CollectionSchema = z.object({ name: z.string().trim().min(1).max(80) });
-const CollectionGameSchema = z.object({ gameId: z.number().int().positive() });
-
-function listCollections() {
-  const rows = db.prepare("SELECT id, name, created_at FROM collections ORDER BY name").all() as { id: number; name: string; created_at: number }[];
-  const counts = db.prepare("SELECT collection_id, COUNT(*) AS n FROM collection_games GROUP BY collection_id").all() as { collection_id: number; n: number }[];
-  const ids = db.prepare("SELECT collection_id, game_id FROM collection_games").all() as { collection_id: number; game_id: number }[];
-  const countBy = new Map(counts.map((c) => [c.collection_id, c.n]));
-  const idsBy = new Map<number, number[]>();
-  for (const row of ids) {
-    const list = idsBy.get(row.collection_id) || [];
-    list.push(row.game_id);
-    idsBy.set(row.collection_id, list);
-  }
-  return rows.map((c) => ({ ...c, game_count: countBy.get(c.id) || 0, game_ids: idsBy.get(c.id) || [] }));
-}
-
-// GET /api/collections
-apiRouter.get("/collections", (_req: Request, res: Response) => {
-  try {
-    res.json(listCollections());
-  } catch (err) {
-    console.error("GET /api/collections error:", err);
-    res.status(500).json({ error: "Failed to fetch collections" });
-  }
-});
-
-// POST /api/collections { name }
-apiRouter.post("/collections", (req: Request, res: Response) => {
-  try {
-    const parsed = CollectionSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Collection name is required (max 80 chars)" });
-    const name = parsed.data.name;
-    try {
-      const info = db.prepare("INSERT INTO collections (name, created_at) VALUES (?, ?)").run(name, Date.now());
-      const row = db.prepare("SELECT id, name, created_at FROM collections WHERE id = ?").get(info.lastInsertRowid);
-      res.status(201).json({ ...(row as object), game_count: 0, game_ids: [] });
-    } catch (err) {
-      if (isUniqueConstraintError(err)) return res.status(409).json({ error: "A collection with that name already exists." });
-      throw err;
-    }
-  } catch (err) {
-    console.error("POST /api/collections error:", err);
-    res.status(500).json({ error: "Failed to create collection" });
-  }
-});
-
-// DELETE /api/collections/:id (membership rows cascade)
-apiRouter.delete("/collections/:id", (req: Request, res: Response) => {
-  try {
-    const paramParsed = IdParamSchema.safeParse(req.params);
-    if (!paramParsed.success) return res.status(400).json({ error: "Invalid collection ID" });
-    const result = db.prepare("DELETE FROM collections WHERE id = ?").run(paramParsed.data.id);
-    if (result.changes === 0) return res.status(404).json({ error: "Collection not found" });
-    res.json({ success: true });
-  } catch (err) {
-    console.error("DELETE /api/collections/:id error:", err);
-    res.status(500).json({ error: "Failed to delete collection" });
-  }
-});
-
-// PATCH /api/collections/:id { name } — rename without breaking memberships
-apiRouter.patch("/collections/:id", (req: Request, res: Response) => {
-  try {
-    const paramParsed = IdParamSchema.safeParse(req.params);
-    const bodyParsed = CollectionSchema.safeParse(req.body);
-    if (!paramParsed.success) return res.status(400).json({ error: "Invalid collection ID" });
-    if (!bodyParsed.success) return res.status(400).json({ error: "Collection name is required (max 80 chars)" });
-    try {
-      const result = db.prepare("UPDATE collections SET name = ? WHERE id = ?").run(bodyParsed.data.name, paramParsed.data.id);
-      if (result.changes === 0) return res.status(404).json({ error: "Collection not found" });
-    } catch (err) {
-      if (isUniqueConstraintError(err)) return res.status(409).json({ error: "A collection with that name already exists." });
-      throw err;
-    }
-    res.json(listCollections().find((c) => c.id === paramParsed.data.id));
-  } catch (err) {
-    console.error("PATCH /api/collections/:id error:", err);
-    res.status(500).json({ error: "Failed to rename collection" });
-  }
-});
-
-// POST /api/collections/:id/games { gameId }
-apiRouter.post("/collections/:id/games", (req: Request, res: Response) => {
-  try {
-    const paramParsed = IdParamSchema.safeParse(req.params);
-    const bodyParsed = CollectionGameSchema.safeParse(req.body);
-    if (!paramParsed.success) return res.status(400).json({ error: "Invalid collection ID" });
-    if (!bodyParsed.success) return res.status(400).json({ error: "Invalid game ID" });
-    const collectionId = paramParsed.data.id;
-    const { gameId } = bodyParsed.data;
-    if (!db.prepare("SELECT id FROM collections WHERE id = ?").get(collectionId)) {
-      return res.status(404).json({ error: "Collection not found" });
-    }
-    if (!stmts.getGameById.get(gameId)) return res.status(404).json({ error: "Game not found" });
-    db.prepare("INSERT OR IGNORE INTO collection_games (collection_id, game_id, added_at) VALUES (?, ?, ?)")
-      .run(collectionId, gameId, Date.now());
-    res.status(201).json({ success: true });
-  } catch (err) {
-    console.error("POST /api/collections/:id/games error:", err);
-    res.status(500).json({ error: "Failed to add game to collection" });
-  }
-});
-
-const CollectionBulkSchema = z.object({ gameIds: z.array(z.number().int().positive()).min(1).max(500) });
-
-// POST /api/collections/:id/games/bulk { gameIds }
-apiRouter.post("/collections/:id/games/bulk", (req: Request, res: Response) => {
-  try {
-    const paramParsed = IdParamSchema.safeParse(req.params);
-    const bodyParsed = CollectionBulkSchema.safeParse(req.body);
-    if (!paramParsed.success) return res.status(400).json({ error: "Invalid collection ID" });
-    if (!bodyParsed.success) return res.status(400).json({ error: "gameIds is required" });
-    const collectionId = paramParsed.data.id;
-    if (!db.prepare("SELECT id FROM collections WHERE id = ?").get(collectionId)) {
-      return res.status(404).json({ error: "Collection not found" });
-    }
-    const insert = db.prepare("INSERT OR IGNORE INTO collection_games (collection_id, game_id, added_at) VALUES (?, ?, ?)");
-    const exists = db.prepare("SELECT id FROM games WHERE id = ?");
-    const now = Date.now();
-    const apply = db.transaction((ids: number[]) => {
-      let added = 0;
-      for (const gameId of ids) {
-        if (!exists.get(gameId)) continue;
-        const info = insert.run(collectionId, gameId, now);
-        if (info.changes) added++;
-      }
-      return added;
-    });
-    const added = apply(bodyParsed.data.gameIds);
-    res.status(201).json({ success: true, added });
-  } catch (err) {
-    console.error("POST /api/collections/:id/games/bulk error:", err);
-    res.status(500).json({ error: "Failed to add games to collection" });
-  }
-});
-
-// DELETE /api/collections/:id/games/:gameId
-apiRouter.delete("/collections/:id/games/:gameId", (req: Request, res: Response) => {
-  try {
-    const parsed = z.object({ id: z.coerce.number().int().positive(), gameId: z.coerce.number().int().positive() }).safeParse(req.params);
-    if (!parsed.success) return res.status(400).json({ error: "Invalid collection or game ID" });
-    db.prepare("DELETE FROM collection_games WHERE collection_id = ? AND game_id = ?").run(parsed.data.id, parsed.data.gameId);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("DELETE /api/collections/:id/games error:", err);
-    res.status(500).json({ error: "Failed to remove game from collection" });
-  }
-});
-
 // ── PLAYTIME HISTORY ────────────────────────────────────────────────
 
 // GET /api/games/:id/playtime — session log for one game (newest first)
@@ -1629,31 +1448,13 @@ apiRouter.get("/games/:id/playtime", (req: Request, res: Response) => {
   }
 });
 
-// GET /api/stats/weekly — hours logged since Monday
-apiRouter.get("/stats/weekly", (_req: Request, res: Response) => {
-  try {
-    const weekStart = currentWeekStart();
-    const row = db.prepare("SELECT COALESCE(SUM(hours), 0) AS h, COUNT(*) AS n FROM playtime_entries WHERE logged_at >= ?")
-      .get(weekStart) as { h: number; n: number };
-    res.json({
-      weekStart,
-      loggedHours: Math.round(row.h * 100) / 100,
-      entryCount: row.n,
-      weeks: weeklyPlaytimeSeries(8),
-    });
-  } catch (err) {
-    console.error("GET /api/stats/weekly error:", err);
-    res.status(500).json({ error: "Failed to compute weekly stats" });
-  }
-});
-
 // ── BACKUPS ─────────────────────────────────────────────────────────
 // Automatic daily snapshots plus on-demand ones, kept in data/backups.
 // Restores copy tables online inside a transaction — no restart needed.
 
 const BACKUP_DIR = path.join(DATA_DIR, "backups");
 const BACKUP_NAME_RE = /^[a-zA-Z0-9._-]+\.db$/;
-const USER_TABLES = ["games", "wishlist", "settings", "collections", "collection_games", "playtime_entries"] as const;
+const USER_TABLES = ["games", "wishlist", "settings", "playtime_entries"] as const;
 
 function ensureBackupDir(): void {
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
@@ -2029,11 +1830,9 @@ apiRouter.post("/duplicates/merge", (req: Request, res: Response) => {
         updated_at: Date.now(),
         id: keepId,
       });
-      // Move the loser's sessions + shelf memberships onto the keeper first.
+      // Move the loser's sessions onto the keeper first.
       db.prepare("UPDATE OR IGNORE playtime_entries SET game_id = ? WHERE game_id = ?").run(keepId, removeId);
       db.prepare("DELETE FROM playtime_entries WHERE game_id = ?").run(removeId);
-      db.prepare("UPDATE OR IGNORE collection_games SET game_id = ? WHERE game_id = ?").run(keepId, removeId);
-      db.prepare("DELETE FROM collection_games WHERE game_id = ?").run(removeId);
       stmts.deleteGame.run(removeId);
     });
     merge();

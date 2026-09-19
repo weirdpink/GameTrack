@@ -7,15 +7,16 @@ import LandingView from "./components/LandingView";
 import DashboardView from "./components/DashboardView";
 import LibraryView from "./components/LibraryView";
 import DiscoverView from "./components/DiscoverView";
-import AnalyticsView from "./components/AnalyticsView";
 import WishlistView from "./components/WishlistView";
 import SettingsModal from "./components/SettingsModal";
 import AuthModal from "./components/AuthModal";
 import GameDetailsModal from "./components/GameDetailsModal";
 import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
-import { Menu, X, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import PageLoader from "./components/PageLoader";
+import BackToTop from "./components/BackToTop";
+import { Buttons } from "./components/Buttons";
 
 const ENTERED_KEY = "gametrack_entered";
 
@@ -23,13 +24,11 @@ export default function App() {
   const {
     activeTab, setActiveTab, fetchGames, fetchAnalytics,
     fetchTrending, fetchDiscoverLists,
-    steamSettings, setSettingsOpen, fetchSteamSettings,
+    setSettingsOpen, fetchSteamSettings,
     fetchWishlist, fetchCustomPlatforms,
     loadingGames,
-    fetchWeeklyStats,
     fetchCustomizations,
   } = useGameTrackStore();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pathname] = useState(() => window.location.pathname);
   const [booted, setBooted] = useState(false);
   const [entered, setEntered] = useState(() => {
@@ -62,7 +61,6 @@ export default function App() {
     fetchAnalytics();
     fetchWishlist();
     fetchCustomPlatforms();
-    fetchWeeklyStats();
     fetchCustomizations();
     if (s.trendingGames.length === 0 || Date.now() - s.lastTrendingFetch > 300_000) fetchTrending();
     if (!s.discoverLists || Date.now() - s.lastListsFetch > 300_000) fetchDiscoverLists();
@@ -77,15 +75,6 @@ export default function App() {
     }
     setEntered(true);
     setActiveTab("dashboard");
-  };
-
-  const handleReturnToLanding = () => {
-    try {
-      localStorage.removeItem(ENTERED_KEY);
-    } catch {
-      /* ignore */
-    }
-    setEntered(false);
   };
 
   useEffect(() => {
@@ -106,10 +95,6 @@ export default function App() {
         e.preventDefault();
         store.setActiveTab("library");
         store.requestSearchFocus();
-        return;
-      }
-      if (e.key === "Escape" && !store.selectedGame && !store.isSettingsOpen && !store.isAddGameOpen && !store.isAuthOpen && !store.playingConflict) {
-        setMobileMenuOpen(false);
         return;
       }
       if (typing(e.target)) return;
@@ -135,10 +120,9 @@ export default function App() {
   }, [entered]);
 
 const tabs = [
-    { id: "dashboard", num: "00", label: "CENTRAL" },
-    { id: "library", num: "01", label: "LIBRARY" },
-    { id: "discover", num: "02", label: "DISCOVER" },
-    { id: "analytics", num: "03", label: "ANALYTICS" }
+    { id: "dashboard", label: "CENTRAL" },
+    { id: "discover", label: "DISCOVER" },
+    { id: "library", label: "LIBRARY" }
   ] as const;
 
   const renderActiveView = () => {
@@ -147,8 +131,6 @@ const tabs = [
         return <LibraryView />;
       case "discover":
         return <DiscoverView />;
-      case "analytics":
-        return <AnalyticsView />;
       case "wishlist":
         return <WishlistView />;
       case "dashboard":
@@ -187,153 +169,41 @@ const tabs = [
   return (
     <>
       <div className="flex h-screen w-full bg-brand-bg overflow-hidden text-zinc-300 font-sans selection:bg-brand-accent/30 selection:text-brand-accent relative">
-      
+
         {/* Subtle Ambient Glow accents across the entire app */}
         <div className="fixed top-[-150px] left-1/3 w-[800px] h-[400px] bg-brand-accent/[0.04] blur-[150px] rounded-full pointer-events-none z-0" />
         <div className="fixed bottom-[-200px] right-1/4 w-[600px] h-[500px] bg-brand-accent/[0.02] blur-[150px] rounded-full pointer-events-none z-0" />
 
-      {/* Container with Sidebar on Desktop, Stacked on Mobile */}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-[200px_1fr] min-h-0 relative z-10">
-        
-        {/* Sidebar Left panel (Desktop Only) */}
-        <aside className="hidden md:flex flex-col justify-between px-9 pt-10 pb-4 border-r border-brand-border bg-brand-bg relative z-10">
-          <div className="space-y-16">
-            {/* Branding Logo */}
-            <button
-              onClick={handleReturnToLanding}
-              className="text-left group cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-4 block w-full bg-transparent border-none p-0"
-              title="Return to Landing Page"
-            >
-              <div className="text-4xl font-black tracking-tighter leading-none text-brand-accent select-none group-hover:text-white transition-colors duration-200">
-                GAME<br />TRACK_
-              </div>
-              <p className="text-[11px] font-mono tracking-widest text-brand-muted mt-2 font-bold uppercase group-hover:text-brand-accent transition-colors duration-200">Gaming Registry</p>
-            </button>
-
-            {/* Sidebar Navigation */}
-            <nav className="space-y-6">
-              {tabs.map((tab) => {
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    id={`sidebar-nav-${tab.id}`}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`group flex items-baseline gap-4 w-full text-left transition-all ${
-                      isActive 
-                        ? "text-brand-accent scale-[1.02]" 
-                        : "text-white hover:text-brand-accent"
-                    }`}
-                  >
-                    <span className="text-xl font-extrabold tracking-tight">
-                      {tab.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-
-          {/* Sidebar Settings */}
-          <div className="pt-6 mt-auto space-y-3">
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-brand-border hover:border-brand-accent/60 text-brand-muted hover:text-white text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer"
-            >
-              Settings
-            </button>
-          </div>
-        </aside>
-
-        {/* Mobile Header (Mobile Only) */}
-        <header className="md:hidden flex items-center justify-between px-6 py-4 border-b border-brand-border bg-brand-bg relative z-20">
-          <button
-            onClick={() => {
-              handleReturnToLanding();
-              setMobileMenuOpen(false);
-            }}
-            className="text-2xl font-black tracking-tighter text-brand-accent hover:text-white transition-colors duration-200 cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-4 text-left bg-transparent border-none p-0"
-            title="Return to Landing Page"
-          >
-            GAMETRACK
-          </button>
-          
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Toggle mobile menu"
-            aria-expanded={mobileMenuOpen}
-            className="p-1.5 text-white bg-brand-border rounded-none hover:bg-zinc-800 transition-colors cursor-pointer"
-          >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-        </header>
-
-        {/* Mobile Dropdown Navigation Menu */}
-        {mobileMenuOpen && (
-          <div
-            role="dialog"
-            aria-modal="false"
-            aria-label="Mobile navigation"
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setMobileMenuOpen(false);
-            }}
-            className="md:hidden absolute top-[65px] inset-x-0 bg-brand-bg border-b border-brand-border z-30 px-6 py-6 space-y-4">
-            <nav className="flex flex-col gap-4">
-              {tabs.map((tab) => {
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`flex items-baseline gap-3 text-left py-1 ${
-                      isActive ? "text-brand-accent font-bold" : "text-zinc-300"
-                    }`}
-                  >
-                    <span className="text-[11px] font-mono text-brand-muted">{tab.num}</span>
-                    <span className="text-lg font-black tracking-tight">{tab.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-            <div className="border-t border-brand-border pt-4 mt-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setSettingsOpen(true);
-                  setMobileMenuOpen(false);
-                }}
-                className="cursor-pointer group flex items-center justify-between gap-3 w-full text-left bg-transparent border-none p-0 focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-mono text-brand-muted uppercase">
-                    Steam Operator
-                  </p>
-                  <p className="text-xs font-bold truncate text-white mt-0.5 group-hover:text-brand-accent transition-colors flex items-center gap-1.5">
-                    {steamSettings?.steamName || "Operator"}
-                  </p>
-                  <p className="text-[11px] text-brand-muted truncate mt-0.5 lowercase">
-                    {steamSettings?.profile || steamSettings?.steamId || "unlinked"}
-                  </p>
-                </div>
-                <div
-                  aria-hidden="true"
-                  className="p-1.5 bg-zinc-900 text-brand-muted hover:text-brand-accent border border-brand-border rounded-none hover:bg-zinc-800 transition-colors shrink-0 flex items-center justify-center"
-                  title="Open Settings"
-                >
-                  <Settings className="w-4 h-4" />
-                </div>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Main Workspace Right pane */}
+        {/* Main workspace — full width, top navigation */}
         <main ref={mainRef} className="flex-1 flex flex-col min-w-0 min-h-0 bg-brand-bg overflow-y-auto scroll-smooth antialiased">
           <div className="w-full px-6 md:px-12 py-10 pb-24 overflow-x-hidden shrink-0 relative">
+            {/* Top navigation — boxed tabs, floated top-right so the page
+                title starts immediately below (matches the hero mock) */}
+            <nav aria-label="Primary" className="absolute top-10 right-6 md:right-12 z-20 flex flex-wrap items-center justify-end gap-2">
+              {tabs.map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <Buttons
+                    key={tab.id}
+                    variant={isActive ? "primary" : "secondary"}
+                    onClick={() => setActiveTab(tab.id)}
+                    aria-current={isActive ? "page" : undefined}
+                    className="px-6 py-2.5"
+                  >
+                    {tab.label}
+                  </Buttons>
+                );
+              })}
+              <Buttons
+                variant="icon"
+                onClick={() => setSettingsOpen(true)}
+                aria-label="Open Settings"
+                title="Open Settings"
+                className="p-2.5"
+              >
+                <Settings className="w-5 h-5" />
+              </Buttons>
+            </nav>
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={activeTab}
@@ -352,27 +222,28 @@ const tabs = [
             </AnimatePresence>
           </div>
         </main>
+
+        {/* Global Overlays & Portals */}
+        <GameDetailsModal />
+        <AddGameModal />
+        <SettingsModal />
+        <AuthModal />
+        <ActivePlayingConflictModal />
+        <Toast />
+        {/* Floating back-to-top: appears on every page once the user scrolls down */}
+        <BackToTop scrollContainerRef={mainRef} />
+
+        {/* Full-screen boot loader: the screen in index.html stays blank (like
+            the theme change) while the game registry preloads, then fades to
+            reveal. Analytics/discover data streams in behind — the views show
+            their own states — so nothing else can delay the reveal. */}
+        {!booted && (
+          <PageLoader
+            checks={[!loadingGames]}
+            onComplete={() => setBooted(true)}
+          />
+        )}
       </div>
-
-      {/* Global Overlays & Portals */}
-      <GameDetailsModal />
-      <AddGameModal />
-      <SettingsModal />
-      <AuthModal />
-      <ActivePlayingConflictModal />
-      <Toast />
-
-      {/* Full-screen boot loader: the screen in index.html stays blank (like
-          the theme change) while the game registry preloads, then fades to
-          reveal. Analytics/discover data streams in behind — the views show
-          their own states — so nothing else can delay the reveal. */}
-      {!booted && (
-        <PageLoader
-          checks={[!loadingGames]}
-          onComplete={() => setBooted(true)}
-        />
-      )}
-    </div>
     </>
   );
 }
