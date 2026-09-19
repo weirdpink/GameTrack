@@ -3,11 +3,10 @@ import {
   Game, LibrarySummary,
   GenreAnalytics, NextToPlaySuggestion,
   IGDBGame, SteamSettings, DiscoverLists, CustomizationSettings, WishlistItem, ManualWishlistEntry,
-  PlayingConflict, PlaytimeEntry, BackupInfo, DuplicateGroup, StorageStats, BackupSettings
+  PlayingConflict, PlaytimeEntry
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
-import { Platform, slugifyPlatformLabel, mergeCustomPlatforms } from "./constants";
-import { downloadTextFile, gamesToCsv, gamesToMarkdown } from "./utils/export";
+import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor } from "./constants";
 
 export interface ToastItem {
   id: number;
@@ -44,6 +43,47 @@ function scheduleToastDismiss(
 // Abort the previous /api/discover/search when a new one starts, so stale
 // responses can never clobber fresher results.
 let searchController: AbortController | null = null;
+// Same supersede pattern for the trending feed: a fresh (page-1) fetch —
+// genre switch, tab mount, reconnect — aborts whatever is in flight instead
+// of being dropped by a busy-guard.
+let trendingController: AbortController | null = null;
+
+/** Default cool-down when the API throttles us without a Retry-After header. */
+const DISCOVER_COOLDOWN_MS = 15_000;
+
+/**
+ * Fixed trending page size. Deliberately NOT derived from the column
+ * customization: the setting is re-fetched from the server after boot, and a
+ * moving page size makes the cached feed's page math overlap (page 2 requested
+ * with a smaller limit re-delivers items page 1 already showed). appendUnique
+ * then filters all of them as duplicates, so the grid never grows while
+ * hasMoreTrending stays true — "scroll to load more" appeared dead until a
+ * hard refresh re-synced the math.
+ */
+const TRENDING_PAGE_SIZE = 24;
+
+/**
+ * How long to wait before touching /api/discover again after a 429. Returns 0
+ * when the response was not a throttle. Honours `Retry-After` (seconds).
+ */
+function discoverCooldownFrom(res: Response): number {
+  if (res.status !== 429) return 0;
+  const retryAfter = Number.parseInt(res.headers.get("retry-after") || "", 10);
+  const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : DISCOVER_COOLDOWN_MS / 1000;
+  return Math.min(60, seconds) * 1000;
+}
+
+/** Append a page without ever repeating a game already on screen. */
+function appendUnique(existing: IGDBGame[], incoming: IGDBGame[]): IGDBGame[] {
+  const seen = new Set(existing.map((g) => g.igdb_id ?? g.title));
+  const additions = incoming.filter((g) => {
+    const key = g.igdb_id ?? g.title;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return [...existing, ...additions];
+}
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -126,12 +166,19 @@ interface GameTrackState {
   trendingGames: IGDBGame[];
   discoverSearchResults: IGDBGame[];
   discoverQuery: string;
+  /** Selected Discover genre filter ("" = all genres). */
+  discoverGenre: string;
+  /** Genre the currently loaded trending list was fetched with. */
+  trendingGenre: string;
   loadingDiscover: boolean;
   discoverError: string | null;
   trendingPage: number;
   searchPage: number;
   hasMoreTrending: boolean;
   hasMoreSearch: boolean;
+  /** Epoch ms until which /api/discover must not be called (0 = clear). */
+  discoverCooldownUntil: number;
+  setDiscoverGenre: (genre: string) => void;
   discoverLists: DiscoverLists | null;
   loadingLists: boolean;
   lastListsFetch: number;
@@ -163,7 +210,7 @@ interface GameTrackState {
   wipeLibrary: () => Promise<boolean>;
   exportLibraryJSON: () => Promise<boolean>;
   exportDatabase: () => Promise<boolean>;
-
+  restoreBackupFile: (file: File) => Promise<boolean>;
   toasts: ToastItem[];
   showToast: (message: string, type?: "success" | "error" | "info", description?: string, duration?: number) => void;
   dismissToast: (id: number) => void;
@@ -185,30 +232,8 @@ interface GameTrackState {
   historyGameId: number | null;
   fetchGameHistory: (gameId: number) => Promise<void>;
 
-  backups: BackupInfo[];
-  backupSettings: BackupSettings;
-  fetchBackups: () => Promise<void>;
-  fetchBackupSettings: () => Promise<void>;
-  saveBackupSettings: (partial: Partial<BackupSettings>) => Promise<boolean>;
-  createBackup: () => Promise<boolean>;
-  deleteBackup: (name: string) => Promise<boolean>;
-  restoreBackup: (name: string) => Promise<boolean>;
-  restoreBackupFile: (file: File) => Promise<boolean>;
-  downloadBackup: (name: string) => Promise<boolean>;
-  exportLibraryMarkdown: () => boolean;
-  exportLibraryCsv: () => boolean;
-
   searchFocusToken: number;
   requestSearchFocus: () => void;
-
-  duplicates: DuplicateGroup[];
-  fetchDuplicates: () => Promise<void>;
-  mergeDuplicates: (keepId: number, removeId: number) => Promise<boolean>;
-
-  storageStats: StorageStats | null;
-  fetchStorageStats: () => Promise<void>;
-  checkpointDatabase: () => Promise<boolean>;
-  cleanOrphanedPosters: () => Promise<{ removed: number; freedBytes: number } | null>;
 
   isAuthOpen: boolean;
   setAuthOpen: (open: boolean) => void;
@@ -326,11 +351,17 @@ function loadCachedDiscover() {
     ) {
       return null;
     }
+    // A cache written by a different pagination scheme resumes with the wrong
+    // page math (overlapping windows starve appendUnique) — start fresh.
+    if (parsed.trendingPageSize !== TRENDING_PAGE_SIZE) return null;
     return parsed as {
       savedAt: number;
       trendingGames: IGDBGame[];
       trendingPage: number;
       hasMoreTrending: boolean;
+      trendingPageSize: number;
+      // Missing on caches written before genre filtering existed ("" = all).
+      trendingGenre?: string;
       discoverLists: DiscoverLists | null;
     };
   } catch {
@@ -345,10 +376,14 @@ function saveDiscoverCache(snapshot: {
   trendingGames: IGDBGame[];
   trendingPage: number;
   hasMoreTrending: boolean;
+  trendingGenre: string;
   discoverLists: DiscoverLists | null;
 }) {
   try {
-    localStorage.setItem(DISCOVER_CACHE_KEY, JSON.stringify(snapshot));
+    localStorage.setItem(DISCOVER_CACHE_KEY, JSON.stringify({
+      ...snapshot,
+      trendingPageSize: TRENDING_PAGE_SIZE,
+    }));
   } catch {
     /* storage full or unavailable — cache is best-effort */
   }
@@ -644,12 +679,15 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   trendingGames: cachedDiscover?.trendingGames ?? [],
   discoverSearchResults: [],
   discoverQuery: "",
+  discoverGenre: cachedDiscover?.trendingGenre ?? "",
+  trendingGenre: cachedDiscover?.trendingGenre ?? "",
   loadingDiscover: false,
   discoverError: null,
   trendingPage: cachedDiscover?.trendingPage ?? 1,
   searchPage: 1,
   hasMoreTrending: cachedDiscover?.hasMoreTrending ?? true,
   hasMoreSearch: true,
+  discoverCooldownUntil: 0,
   discoverLists: cachedDiscover?.discoverLists ?? null,
   loadingLists: false,
   lastListsFetch: cachedDiscover?.savedAt ?? 0,
@@ -669,6 +707,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         trendingGames: get().trendingGames,
         trendingPage: get().trendingPage,
         hasMoreTrending: get().hasMoreTrending,
+        trendingGenre: get().trendingGenre,
         discoverLists: data,
       });
     } catch (err: unknown) {
@@ -680,41 +719,113 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   },
 
   fetchTrending: async (loadMore = false) => {
-    if (get().loadingDiscover) return;
+    // A fresh (page-1) request supersedes whatever is in flight instead of
+    // being dropped by a busy-guard — that guard is what deadlocked genre
+    // switches (the switch's fetch was discarded while a load-more was
+    // running, leaving an empty feed nothing would ever refill).
+    if (loadMore && get().loadingDiscover) return;
+    // Still cooling down after a 429 — retrying now would only throttle harder.
+    if (Date.now() < get().discoverCooldownUntil) return;
     const nextPage = loadMore ? get().trendingPage + 1 : 1;
     if (loadMore && !get().hasMoreTrending) return;
 
-    // Load two full rows per batch based on the configured grid columns.
-    const pageSize = get().customizations.discoverColumns * 2;
+    const genre = get().discoverGenre;
+
+    // Sequence requests: a new page-1 fetch aborts the previous in-flight one
+    // so a slow stale response can never overwrite fresher results.
+    if (!loadMore) {
+      trendingController?.abort();
+    }
+    const controller = new AbortController();
+    trendingController = controller;
 
     set({ loadingDiscover: true, discoverError: null });
     try {
-      const res = await fetch(`/api/discover/trending?page=${nextPage}&limit=${pageSize}`);
+      // Genre filtering runs server-side over the whole ranked pool, so every
+      // page delivered here already matches the active filter. The page size
+      // is fixed (see TRENDING_PAGE_SIZE) so cached-feed page math stays valid.
+      const genreParam = igdbGenreNamesFor(genre).join(",");
+      const res = await fetch(
+        `/api/discover/trending?page=${nextPage}&limit=${TRENDING_PAGE_SIZE}` +
+        (genreParam ? `&genre=${encodeURIComponent(genreParam)}` : ""),
+        { signal: controller.signal }
+      );
+      const cooldown = discoverCooldownFrom(res);
+      if (cooldown) {
+        // Park the feed instead of hammering: this is what used to leave the
+        // "Loading more games..." spinner running forever without new cards.
+        set({ discoverCooldownUntil: Date.now() + cooldown });
+        get().showToast("Discover is throttled by the server", "info", "Retrying automatically in a few seconds.");
+        return;
+      }
       if (!res.ok) throw new Error("Failed to load trending games");
       const data = await res.json();
+      const results: IGDBGame[] = Array.isArray(data) ? data : [];
 
+      if (controller.signal.aborted) return; // superseded by a newer fetch
+      // The user switched genres while this request was in flight — the
+      // response belongs to the old filter, so appending it would mix feeds.
+      if (get().discoverGenre !== genre) return;
+
+      const hasMore = results.length > 0 && results.length === TRENDING_PAGE_SIZE;
       set((state) => ({
-        trendingGames: loadMore ? [...state.trendingGames, ...data] : data,
+        trendingGames: loadMore ? appendUnique(state.trendingGames, results) : results,
         trendingPage: nextPage,
-        hasMoreTrending: data.length > 0 && data.length === pageSize,
+        trendingGenre: genre,
+        hasMoreTrending: hasMore,
         discoverError: null,
       }));
       saveDiscoverCache({
         savedAt: Date.now(),
         trendingGames: get().trendingGames,
         trendingPage: nextPage,
-        hasMoreTrending: data.length > 0 && data.length === pageSize,
+        hasMoreTrending: hasMore,
+        trendingGenre: genre,
         discoverLists: get().discoverLists,
       });
       set({ lastTrendingFetch: Date.now() });
     } catch (err: unknown) {
+      if (controller.signal.aborted) return; // superseded — not an error
       console.error(err);
       set({
         discoverError: loadMore ? null : "Could not reach the game registry. The discovery service is temporarily unavailable. Please try again in a moment.",
       });
     } finally {
-      set({ loadingDiscover: false });
+      if (!controller.signal.aborted) set({ loadingDiscover: false });
     }
+  },
+
+  /**
+   * Switch the Discover genre filter. The loaded feed is dropped immediately so
+   * the grid can never show the previous genre's titles, and page 1 of the new
+   * filter is fetched right away (the active search, if any, re-runs from the
+   * view because its debounce effect depends on this value). The cooldown is
+   * cleared too — a 429 parked against the *previous* filter must not make the
+   * new one unscrollable.
+   */
+  setDiscoverGenre: (genre) => {
+    if (get().discoverGenre === genre) return;
+    // Abort any in-flight request for the previous genre so its response can
+    // neither overwrite the new feed nor keep the loader spinning.
+    trendingController?.abort();
+    searchController?.abort();
+    set({
+      discoverGenre: genre,
+      trendingGames: [],
+      trendingGenre: genre,
+      trendingPage: 1,
+      hasMoreTrending: true,
+      // An active search must not show the previous genre's results while the
+      // re-queried page 1 is in flight.
+      discoverSearchResults: [],
+      discoverQuery: "",
+      searchPage: 1,
+      hasMoreSearch: true,
+      discoverCooldownUntil: 0,
+      discoverError: null,
+      loadingDiscover: false,
+    });
+    if (!get().discoverQuery.trim()) void get().fetchTrending(false);
   },
 
   searchDiscover: async (query, loadMore = false) => {
@@ -726,6 +837,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       set({ discoverSearchResults: [], discoverQuery: "", searchPage: 1, hasMoreSearch: true, discoverError: null, loadingDiscover: false });
       return;
     }
+    if (Date.now() < get().discoverCooldownUntil) return;
     const nextPage = loadMore ? get().searchPage + 1 : 1;
     if (loadMore && !get().hasMoreSearch) return;
 
@@ -737,16 +849,33 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
 
     set({ loadingDiscover: true, discoverError: null });
     try {
-      const res = await fetch(`/api/discover/search?q=${encodeURIComponent(trimmedQuery)}&page=${nextPage}`, { signal: controller.signal });
+      // Genre filtering happens server-side against the whole search pool, so
+      // results never shrink to a handful of matches in the loaded window.
+      const genreParam = igdbGenreNamesFor(get().discoverGenre).join(",");
+      const res = await fetch(
+        `/api/discover/search?q=${encodeURIComponent(trimmedQuery)}&page=${nextPage}` +
+        (genreParam ? `&genre=${encodeURIComponent(genreParam)}` : ""),
+        { signal: controller.signal }
+      );
+      const cooldown = discoverCooldownFrom(res);
+      if (cooldown) {
+        set({ discoverCooldownUntil: Date.now() + cooldown });
+        return;
+      }
       if (!res.ok) throw new Error("Failed to search games");
       const data = await res.json();
+      const results: IGDBGame[] = Array.isArray(data) ? data : [];
 
       if (controller.signal.aborted) return; // superseded by a newer search
       set((state) => ({
-        discoverSearchResults: loadMore ? [...state.discoverSearchResults, ...data] : data,
+        discoverSearchResults: loadMore ? appendUnique(state.discoverSearchResults, results) : results,
         discoverQuery: trimmedQuery,
         searchPage: nextPage,
-        hasMoreSearch: data.length > 0 && data.length === 15,
+        // An empty page is the only reliable end marker: the search pool is
+        // filtered by genre server-side, so a filtered search often returns
+        // fewer than a full page — an exact-equality check against the full
+        // page size prematurely ended the feed ("End" right after page 1).
+        hasMoreSearch: results.length > 0,
         discoverError: null,
       }));
     } catch (err: unknown) {
@@ -1147,6 +1276,30 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     }
   },
 
+  // Restore a raw SQLite database file picked by the user (the counterpart to
+  // exportDatabase). The server swaps it in atomically after taking a safety
+  // backup of the current state.
+  restoreBackupFile: async (file) => {
+    try {
+      const res = await fetch("/api/backups/restore-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: await file.arrayBuffer(),
+      });
+      if (!res.ok) throw await getApiError(res, "Restore failed");
+      // Library identity changed wholesale — refresh everything from scratch.
+      await get().fetchGames(true);
+      await get().fetchAnalytics();
+      await get().fetchWishlist(true);
+      await get().fetchCustomPlatforms();
+      get().showToast("Database restored", "success", file.name);
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error restoring database", "error");
+      return false;
+    }
+  },
+
   // ── Toasts (queue) ─────────────────────────────────────────────
   toasts: [],
   showToast: (message, type = "info", description, duration) => {
@@ -1312,229 +1465,9 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     }
   },
 
-  // ── Backups ──────────────────────────────────────────────────
-  backups: [],
-  backupSettings: { enabled: true, keep: 5 },
-  fetchBackupSettings: async () => {
-    try {
-      const res = await fetch("/api/settings/backups");
-      if (!res.ok) return;
-      const data = await res.json();
-      set({ backupSettings: { enabled: data.enabled !== false, keep: Number(data.keep) || 5 } });
-    } catch (err) {
-      console.error("Failed to fetch backup settings:", err);
-    }
-  },
-  saveBackupSettings: async (partial) => {
-    try {
-      const next = { ...get().backupSettings, ...partial };
-      const res = await fetch("/api/settings/backups", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
-      });
-      if (!res.ok) throw new Error("Failed to save backup settings");
-      const data = await res.json();
-      set({ backupSettings: { enabled: data.enabled !== false, keep: Number(data.keep) || 5 } });
-      await get().fetchBackups();
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error saving backup settings", "error");
-      return false;
-    }
-  },
-  fetchBackups: async () => {
-    try {
-      const res = await fetch("/api/backups");
-      if (!res.ok) return;
-      const data = await res.json();
-      if (Array.isArray(data)) set({ backups: data });
-    } catch (err) {
-      console.error("Failed to fetch backups:", err);
-    }
-  },
-  createBackup: async () => {
-    try {
-      const res = await fetch("/api/backups", { method: "POST" });
-      if (!res.ok) throw new Error("Failed to create backup");
-      const data = await res.json();
-      if (Array.isArray(data)) set({ backups: data });
-      get().showToast("Backup created", "success");
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error creating backup", "error");
-      return false;
-    }
-  },
-  deleteBackup: async (name) => {
-    try {
-      const res = await fetch(`/api/backups/${encodeURIComponent(name)}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete backup");
-      set((state) => ({ backups: state.backups.filter((b) => b.name !== name) }));
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error deleting backup", "error");
-      return false;
-    }
-  },
-  restoreBackup: async (name) => {
-    try {
-      const res = await fetch(`/api/backups/${encodeURIComponent(name)}/restore`, { method: "POST" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Restore failed");
-      }
-      // Library identity changed wholesale — refresh everything from scratch.
-      await get().fetchGames(true);
-      await get().fetchAnalytics();
-      await get().fetchWishlist(true);
-      await get().fetchCustomPlatforms();
-      get().showToast("Backup restored", "success", name);
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error restoring backup", "error");
-      return false;
-    }
-  },
-  downloadBackup: async (name) => {
-    try {
-      const res = await fetch(`/api/backups/${encodeURIComponent(name)}/download`);
-      if (!res.ok) throw new Error("Failed to download backup");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error downloading backup", "error");
-      return false;
-    }
-  },
-  restoreBackupFile: async (file) => {
-    try {
-      const res = await fetch("/api/backups/restore-file", {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: await file.arrayBuffer(),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Restore failed");
-      }
-      await get().fetchGames(true);
-      await get().fetchAnalytics();
-      await get().fetchWishlist(true);
-      await get().fetchCustomPlatforms();
-      get().showToast("Backup restored", "success", file.name);
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error restoring backup", "error");
-      return false;
-    }
-  },
-  exportLibraryMarkdown: () => {
-    try {
-      const stamp = new Date().toISOString().slice(0, 10);
-      downloadTextFile(`gametrack-library-${stamp}.md`, gamesToMarkdown(get().games), "text/markdown;charset=utf-8");
-      get().showToast("Markdown exported", "success");
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Export failed", "error");
-      return false;
-    }
-  },
-  exportLibraryCsv: () => {
-    try {
-      const stamp = new Date().toISOString().slice(0, 10);
-      downloadTextFile(`gametrack-library-${stamp}.csv`, gamesToCsv(get().games), "text/csv;charset=utf-8");
-      get().showToast("CSV exported", "success");
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Export failed", "error");
-      return false;
-    }
-  },
-
+  // ── Search focus ─────────────────────────────────────────────
   searchFocusToken: 0,
   requestSearchFocus: () => set((state) => ({ searchFocusToken: state.searchFocusToken + 1 })),
-
-  // ── Duplicates ───────────────────────────────────────────────
-  duplicates: [],
-  fetchDuplicates: async () => {
-    try {
-      const res = await fetch("/api/duplicates");
-      if (!res.ok) return;
-      const data = await res.json();
-      if (Array.isArray(data)) set({ duplicates: data });
-    } catch (err) {
-      console.error("Failed to fetch duplicates:", err);
-    }
-  },
-  mergeDuplicates: async (keepId, removeId) => {
-    try {
-      const res = await fetch("/api/duplicates/merge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keepId, removeId }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Merge failed");
-      }
-      await get().fetchGames(true);
-      await get().fetchDuplicates();
-      get().showToast("Games merged", "success");
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error merging games", "error");
-      return false;
-    }
-  },
-
-  // ── Storage ──────────────────────────────────────────────────
-  storageStats: null,
-  fetchStorageStats: async () => {
-    try {
-      const res = await fetch("/api/storage");
-      if (!res.ok) return;
-      set({ storageStats: await res.json() });
-    } catch (err) {
-      console.error("Failed to fetch storage stats:", err);
-    }
-  },
-  checkpointDatabase: async () => {
-    try {
-      const res = await fetch("/api/storage/checkpoint", { method: "POST" });
-      if (!res.ok) throw new Error("Checkpoint failed");
-      await get().fetchStorageStats();
-      get().showToast("Database checkpointed", "success");
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error running checkpoint", "error");
-      return false;
-    }
-  },
-  cleanOrphanedPosters: async () => {
-    try {
-      const res = await fetch("/api/storage/clean-posters", { method: "POST" });
-      if (!res.ok) throw new Error("Cleanup failed");
-      const data = await res.json();
-      await get().fetchStorageStats();
-      get().showToast(
-        data.removed ? `Removed ${data.removed} orphaned poster${data.removed === 1 ? "" : "s"}` : "No orphaned posters",
-        "success"
-      );
-      return { removed: data.removed || 0, freedBytes: data.freedBytes || 0 };
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error cleaning posters", "error");
-      return null;
-    }
-  },
 
   // ── Local Auth (cosmetic) ────────────────────────────────────
   isAuthOpen: false,

@@ -11,6 +11,8 @@ export interface IgdbRawGame {
   id: number;
   name?: string;
   category?: number | null;
+  parent_game?: number | null;
+  version_parent?: number | null;
   first_release_date?: number;
   genres?: { name: string }[];
   summary?: string;
@@ -246,6 +248,12 @@ export async function fetchFromIgdb(endpoint: string, query: string): Promise<un
 // the same data is viewed repeatedly — hold stable results in memory so
 // browser refreshes / tab switches don't multiply upstream cost.
 const discoveryCache = new Map<string, { at: number; data: unknown }>();
+// In-flight upstream calls, keyed the same way. Without this, two requests
+// that miss the cache in the same tick (fast scrolling asks for page 1 and
+// page 2 back to back) both hit IGDB and — because IGDB's ordering is not
+// stable across identical queries with tied sort keys — the two pools can
+// differ, which shows up as duplicated or skipped items between pages.
+const discoveryPending = new Map<string, Promise<unknown>>();
 const DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
 // Bound memory in a long-lived process: every distinct search string, page
 // and offset is its own key, and expired entries are otherwise only dropped
@@ -265,13 +273,27 @@ export async function cachedFetchFromIgdb(endpoint: string, query: string, ttlMs
     return hit.data;
   }
   if (hit) discoveryCache.delete(cacheKey); // expired — free the entry, don't accumulate
-  const data = await fetchFromIgdb(endpoint, query);
-  if (discoveryCache.size >= DISCOVERY_CACHE_MAX_ENTRIES) {
-    const oldest = discoveryCache.keys().next();
-    if (!oldest.done) discoveryCache.delete(oldest.value);
+
+  // Coalesce concurrent misses: everyone waiting on this key shares one call.
+  const pending = discoveryPending.get(cacheKey);
+  if (pending) return pending;
+
+  const call = (async () => {
+    const data = await fetchFromIgdb(endpoint, query);
+    if (discoveryCache.size >= DISCOVERY_CACHE_MAX_ENTRIES) {
+      const oldest = discoveryCache.keys().next();
+      if (!oldest.done) discoveryCache.delete(oldest.value);
+    }
+    discoveryCache.set(cacheKey, { at: Date.now(), data });
+    return data;
+  })();
+
+  discoveryPending.set(cacheKey, call);
+  try {
+    return await call;
+  } finally {
+    discoveryPending.delete(cacheKey);
   }
-  discoveryCache.set(cacheKey, { at: Date.now(), data });
-  return data;
 }
 
 /**
@@ -376,6 +398,106 @@ export function mapIgdbGame(item: IgdbRawGame): IgdbMappedGame {
 }
 
 const GAME_FIELDS = "fields name, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug;";
+
+// ── Discover feed pools ─────────────────────────────────────────────
+//
+// Trending and search are *pools*: one IGDB call builds a ranked list that is
+// then paginated in memory. Why pools instead of IGDB `offset` paging:
+//  - `cachedFetchFromIgdb` keys its cache on the exact query string, so an
+//    offset baked into the query would bypass the cache on every page and hit
+//    IGDB again (seconds of latency per "load more").
+//  - Deep IGDB offsets degrade upstream, and IGDB cannot combine `search` with
+//    `where` at all, so genre filtering has to happen against a pool anyway.
+// The pool therefore gives us: one upstream call per (query|genre) per TTL, and
+// instant, correctly-filtered pagination after that.
+
+/** How many ranked titles make up each trending pool (≈20 pages of feed). */
+const TRENDING_POOL_SIZE = 150;
+/** IGDB returns at most 100 per search call — that is the search pool. */
+const SEARCH_POOL_SIZE = 100;
+/** Genre-filtered feeds are the same cost as unfiltered ones, so share the TTL. */
+const FEED_POOL_TTL_MS = 10 * 60 * 1000;
+
+/** Escape an IGDB Apicalypse string literal (genre names, search text). */
+function apicalypseString(value: string): string {
+  // Strip characters that would break out of an Apicalypse string literal,
+  // then cap the length so a hostile query can't build a huge upstream request.
+  return value.replace(/[\\"\r\n;]/g, "").trim().slice(0, 200);
+}
+
+/**
+ * Ranked, filtered trending pool for the Discover feed. When `genreNames` is
+ * non-empty the filter is applied by IGDB itself (so every page of the feed
+ * contains matches, instead of the client filtering a tiny window).
+ */
+export async function getTrendingPool(genreNames: string[]): Promise<IgdbMappedGame[]> {
+  const where = ["total_rating_count > 50"];
+  const names = genreNames.filter(Boolean).slice(0, 12);
+  if (names.length) {
+    where.push(`genres.name = (${names.map((n) => `"${apicalypseString(n)}"`).join(",")})`);
+  }
+  const query = `${GAME_FIELDS} where ${where.join(" & ")}; sort total_rating_count desc; limit ${TRENDING_POOL_SIZE};`;
+  const data = await cachedFetchFromIgdb("games", query, FEED_POOL_TTL_MS);
+  return (Array.isArray(data) ? (data as IgdbRawGame[]) : []).map(mapIgdbGame);
+}
+
+/**
+ * Search titles IGDB knows about, minus microtransaction/edition junk and with
+ * the base game ranked first. Cached as a whole pool so paging is instant and
+ * genre filtering can be applied to the entire result set in JS (IGDB rejects
+ * `search` queries that also carry a `where` clause).
+ */
+export async function getSearchPool(rawQuery: string): Promise<IgdbMappedGame[]> {
+  const qStr = apicalypseString(rawQuery.trim());
+  if (!qStr) return [];
+
+  const query = `search "${qStr}"; ${GAME_FIELDS} limit ${SEARCH_POOL_SIZE};`;
+  const data = await cachedFetchFromIgdb("games", query, FEED_POOL_TTL_MS);
+  const raw = Array.isArray(data) ? (data as IgdbRawGame[]) : [];
+
+  return filterSearchJunk(raw)
+    .sort((a, b) => rankSearchHit(a, b, qStr))
+    .map(mapIgdbGame);
+}
+
+/** Titles that are not games: skins, costume packs, DLC and edition upsells. */
+const EXCLUDE_KEYWORDS = [
+  "skin", "batsuit", "costume", "season pass", "pack", "add-on", "addon",
+  "bonus", "theme", "avatar", "pre-order", "preorder", "suit", "car", "vehicle",
+  "collector", "steelbook", "limited edition", "serious edition",
+];
+
+/** Drop skins/DLC/updates, keeping real games and major editions. */
+function filterSearchJunk(items: IgdbRawGame[]): IgdbRawGame[] {
+  return items.filter((item) => {
+    const nameLower = (item.name || "").toLowerCase();
+    if (EXCLUDE_KEYWORDS.some((kw) => nameLower.includes(kw))) return false;
+
+    if (item.category !== undefined && item.category !== null) {
+      // DLC=1, Mod=5, Pack=13, Update=14 are not standalone games.
+      const allowedCategories = [0, 2, 3, 4, 8, 9, 10, 11];
+      if (!allowedCategories.includes(item.category)) {
+        const isMajorEdition = ["director", "goty", "game of the year"].some((kw) => nameLower.includes(kw));
+        if (!isMajorEdition) return false;
+      }
+    }
+    return true;
+  });
+}
+
+/** Relevance ranking: exact title, then base games, then prefix matches. */
+function rankSearchHit(a: IgdbRawGame, b: IgdbRawGame, searchLower: string): number {
+  const aName = (a.name || "").toLowerCase();
+  const bName = (b.name || "").toLowerCase();
+
+  if (aName === searchLower && bName !== searchLower) return -1;
+  if (bName === searchLower && aName !== searchLower) return 1;
+  if (!a.version_parent && b.version_parent) return -1;
+  if (!b.version_parent && a.version_parent) return 1;
+  if (aName.startsWith(searchLower) && !bName.startsWith(searchLower)) return -1;
+  if (bName.startsWith(searchLower) && !aName.startsWith(searchLower)) return 1;
+  return 0; // Preserve IGDB's own relevance rank for the rest.
+}
 
 /**
  * Curated editorial lists for the Discover page — four parallel IGDB

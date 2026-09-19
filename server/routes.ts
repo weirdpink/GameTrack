@@ -8,7 +8,7 @@ import { z } from "zod";
 import { normalizePlatformIds, AVAILABLE_PLATFORMS } from "../src/constants";
 import { DATA_DIR, POSTERS_DIR } from "./paths";
 
-import { fetchFromIgdb, mapIgdbGame, fetchCuratedLists, cachedFetchFromIgdb, IgdbAuthError } from "./igdb";
+import { mapIgdbGame, fetchCuratedLists, cachedFetchFromIgdb, getSearchPool, getTrendingPool, IgdbAuthError } from "./igdb";
 import {
   resolveSteamId,
   fetchOwnedGames,
@@ -153,14 +153,28 @@ type WishlistItem = z.infer<typeof WishlistSchema> & { id: number; date_added: n
 
 const OrderSchema = z.object({ ids: z.array(z.number().int().positive()) });
 const BulkDeleteSchema = z.object({ ids: z.array(z.number().int().positive()).min(1).max(2000) });
+/** Search results are always served 15 at a time. */
+const SEARCH_PAGE_SIZE = 15;
+
+// `genre` carries the IGDB genre names to match (comma separated), already
+// mapped from the UI's labels on the client.
 const SearchQuerySchema = z.object({
   q: z.string().max(200).default(""),
-  page: z.string().regex(/^\d+$/).default("1")
+  page: z.string().regex(/^\d+$/).default("1"),
+  genre: z.string().max(300).optional().default("")
 });
 const TrendingQuerySchema = z.object({
   page: z.string().regex(/^\d+$/).default("1"),
-  limit: z.string().regex(/^\d+$/).default("15")
+  limit: z.string().regex(/^\d+$/).default("15"),
+  genre: z.string().max(300).optional().default("")
 });
+
+/** Split the `genre` query param into IGDB genre names (order preserved, deduped). */
+function parseGenreParam(value: string): string[] {
+  return [...new Set(
+    value.split(",").map((g) => g.trim()).filter(Boolean)
+  )].slice(0, 12);
+}
 const IdParamSchema = z.object({ id: z.coerce.number().int().positive() });
 const IgdbIdParamSchema = z.object({ igdbId: z.coerce.number().int().positive() });
 const UploadPosterSchema = z.object({ dataUrl: z.string().startsWith("data:image/") });
@@ -1186,72 +1200,25 @@ apiRouter.get("/discover/search", async (req: Request, res: Response) => {
   try {
     const parsed = SearchQuerySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
-    const { q, page } = parsed.data;
-    // Strip characters that break out of the IGDB Apicalypse string literal,
-    // and cap length so a hostile query can't build a megabyte-long request.
-    const qStr = q.toString().trim().replace(/[\\"\r\n;]/g, "").slice(0, 200);
-    if (!qStr) return res.json([]);
+    const { q, page, genre } = parsed.data;
+    if (!q.trim()) return res.json([]);
 
     const pageNum = Math.min(100, Math.max(1, parseInt(page.toString()) || 1));
 
-    // Note: IGDB Apicalypse does NOT support 'where' filters alongside 'search' queries (it returns 0 results).
-    // So we fetch 100 entries and do clean filtering in JS.
-    const query = `search "${qStr}"; fields name, category, parent_game, version_parent, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug; limit 100;`;
-    const data = await fetchFromIgdb("games", query);
+    // One cached IGDB call builds the ranked, junk-free pool; genre filtering
+    // and paging then happen in memory (IGDB rejects `search` + `where`).
+    const pool = await getSearchPool(q);
+    const genreNames = parseGenreParam(genre);
+    const matching = genreNames.length
+      ? pool.filter((game) =>
+          game.genres.some((g) => genreNames.some((name) => name.toLowerCase() === g.toLowerCase()))
+        )
+      : pool;
 
-    const EXCLUDE_KEYWORDS = [
-      "skin", "batsuit", "costume", "season pass", "pack", "add-on", "addon",
-      "bonus", "theme", "avatar", "pre-order", "preorder", "suit", "car", "vehicle",
-      "collector", "steelbook", "limited edition", "serious edition"
-    ];
-
-    const filteredData = Array.isArray(data) ? data.filter((item: any) => {
-      const nameLower = (item.name || "").toLowerCase();
-
-      // 1. Exclude if title explicitly matches microtransaction skin/costume/item pack keywords
-      if (EXCLUDE_KEYWORDS.some(kw => nameLower.includes(kw))) {
-        return false;
-      }
-
-      // 2. Exclude non-game categories (DLC=1, Mod=5, Pack=13, Update=14) unless title explicitly says Director's Cut / GOTY / etc.
-      if (item.category !== undefined && item.category !== null) {
-        const allowedCategories = [0, 2, 3, 4, 8, 9, 10, 11];
-        if (!allowedCategories.includes(item.category)) {
-          const isMajorEdition = ["director", "goty", "game of the year"].some(kw => nameLower.includes(kw));
-          if (!isMajorEdition) return false;
-        }
-      }
-
-      return true;
-    }) : [];
-
-    // 3. Sort results by IGDB-style title relevance ranking (base game first)
-    const searchLower = qStr.toLowerCase().trim();
-    filteredData.sort((a: any, b: any) => {
-      const aName = (a.name || "").toLowerCase();
-      const bName = (b.name || "").toLowerCase();
-
-      // Exact title match gets top priority
-      if (aName === searchLower && bName !== searchLower) return -1;
-      if (bName === searchLower && aName !== searchLower) return 1;
-
-      // Base games (without version_parent) get priority over edition variants
-      if (!a.version_parent && b.version_parent) return -1;
-      if (!b.version_parent && a.version_parent) return 1;
-
-      // Title starting with exact search string gets next priority
-      if (aName.startsWith(searchLower) && !bName.startsWith(searchLower)) return -1;
-      if (bName.startsWith(searchLower) && !aName.startsWith(searchLower)) return 1;
-
-      return 0; // Preserve IGDB search relevance rank for remaining items
-    });
-
-    const startIndex = (pageNum - 1) * 15;
-    const pagedResults = filteredData.slice(startIndex, startIndex + 15);
-    const results = pagedResults.map(mapIgdbGame);
-    res.json(results);
+    const startIndex = (pageNum - 1) * SEARCH_PAGE_SIZE;
+    res.json(matching.slice(startIndex, startIndex + SEARCH_PAGE_SIZE));
   } catch (error: unknown) {
-    respondIgdbFailure(error, res, "Failed to search IGDB");
+    respondIgdbFailure(error, res, "Failed to search games on IGDB");
   }
 });
 
@@ -1259,21 +1226,15 @@ apiRouter.get("/discover/trending", async (req: Request, res: Response) => {
   try {
     const parsed = TrendingQuerySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
-    const { page, limit } = parsed.data;
+    const { page, limit, genre } = parsed.data;
     const pageNum = Math.min(100, Math.max(1, parseInt(page.toString()) || 1));
     const pageSize = Math.min(30, Math.max(1, parseInt(limit.toString()) || 15));
 
-    // Do NOT pass offset into IGDB: cachedFetchFromIgdb keys its cache on the
-    // exact query string, so every page would bypass the cache. IGDB also
-    // degrades on deep offsets. Instead, always fetch the first 300 rated
-    // titles through the cache and paginate the slices locally.
-    const MAX_FEED = 300;
-    const query = `fields name, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug; where total_rating_count > 50; sort total_rating_count desc; limit ${MAX_FEED};`;
-    const data = await cachedFetchFromIgdb("games", query);
-
-    const all = Array.isArray(data) ? data.map(mapIgdbGame) : [];
+    // The pool is cached per genre selection, so the first request for a genre
+    // pays one IGDB call and every page after it is served from memory.
+    const pool = await getTrendingPool(parseGenreParam(genre));
     const startIndex = (pageNum - 1) * pageSize;
-    res.json(all.slice(startIndex, startIndex + pageSize));
+    res.json(pool.slice(startIndex, startIndex + pageSize));
   } catch (error: unknown) {
     respondIgdbFailure(error, res, "Failed to fetch trending games from IGDB");
   }

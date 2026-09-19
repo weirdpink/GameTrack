@@ -5,7 +5,7 @@ import {
   Trophy, Clock, Sparkles, Calendar, Shuffle, ChevronDown
 } from "lucide-react";
 import { motion } from "motion/react";
-import { formatPlaytime, formatPlaytimeLong } from "../utils/time";
+import { formatPlaytime, formatPlaytimeLong, formatPlaytimePrecise } from "../utils/time";
 import { getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms } from "../constants";
 import { PosterImage } from "./PosterImage";
 import AnalyticsView from "./AnalyticsView";
@@ -144,9 +144,58 @@ export const DashboardView: React.FC = React.memo(() => {
         </div>
       )}
 
-
-
-
+      {/* Current Session — the game you're actively playing right now */}
+      {activeGames.length > 0 ? (
+        <div className="space-y-4">
+          {activeGames.map((game) => (
+            <div
+              key={game.id}
+              className="bg-session-bg text-session-text p-8 sm:p-10 rounded-none flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 transition-all border-l-8 border-brand-accent select-none"
+            >
+              <div className="space-y-4">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext font-mono">
+                  CURRENT_SESSION
+                </h3>
+                <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter leading-none text-session-text font-sans">
+                  {game.title}
+                </h2>
+                <p className="text-xs font-bold text-session-subtext font-mono tracking-wider max-w-lg uppercase">
+                  {game.genres?.slice(0, 3).join("  •  ") ?? ""}
+                </p>
+              </div>
+              
+              <div className="text-left sm:text-right shrink-0">
+                <p className="text-[11px] font-mono tracking-widest text-session-subtext uppercase font-bold">
+                  Accumulated
+                </p>
+                <div className="font-mono text-3xl sm:text-4xl font-black text-session-text tracking-tight mt-1">
+                  {game.hide_playtime === 1 ? "—" : formatPlaytimePrecise(game.playtime)}
+                </div>
+                <button
+                  onClick={() => setSelectedGame(game)}
+                  className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider bg-session-text text-session-bg hover:opacity-90 px-3.5 py-1.5 rounded-none transition-all cursor-pointer"
+                >
+                  View Details
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="bg-session-bg text-session-text p-8 sm:p-10 rounded-none flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 transition-all border-l-8 border-brand-accent select-none">
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext font-mono">
+              NO_ACTIVE_SESSION
+            </h3>
+            <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter leading-none text-session-text font-sans">
+              READY_FOR_ENGAGEMENT
+            </h2>
+            <p className="text-xs font-bold text-session-subtext font-mono tracking-wider max-w-lg uppercase">
+              MARK_A_TITLE_AS_CURRENTLY_PLAYING_TO_INITIATE_METRIC_TRACKING
+            </p>
+          </div>
+        </div>
+      )}
       {/* Suggestions and Recent Activity Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         

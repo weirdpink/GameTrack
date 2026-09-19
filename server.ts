@@ -180,8 +180,13 @@ export async function createApp(production = false) {
   app.use("/api", apiLimiter);
 
   const strictLimiter = rateLimit({
+    // Discover traffic is paginated (every scroll batch is a request), search
+    // as you type (each debounce pause is a request) and opens a details modal
+    // per card — all of it served from the server-side IGDB cache. 20/min was
+    // throttling legitimate browsing into 429s, which the UI rendered as an
+    // endless "Loading more games…" spinner.
     windowMs: 60 * 1000,
-    max: 20,
+    max: 120,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: "Too many requests to this endpoint, please slow down." },

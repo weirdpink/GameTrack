@@ -240,3 +240,63 @@ export const getStatusBorderColor = (status: string): string => {
       return "border border-brand-border hover:border-brand-accent/40 focus:border-brand-accent";
   }
 };
+
+// ── Discover genre filter ──────────────────────────────────────────
+// Our dropdown labels are not IGDB genre names, so every option maps to the
+// exact IGDB genre name(s) it should match. This is the single source of truth
+// shared by the store (which sends the names to the API) and the Discover view
+// (which renders the options).
+//
+// Notes on the IGDB taxonomy:
+//  - There is no "Action" genre — it spans the action-oriented genres.
+//  - "Sport" (not "Sports"), "Simulator" (not "Simulation"),
+//    "Platform" (not "Platformer").
+
+/** Selectable Discover genre filters in display order. */
+export const DISCOVER_GENRES = [
+  "Action",
+  "RPG",
+  "Shooter",
+  "Adventure",
+  "Sports",
+  "Racing",
+  "Indie",
+  "Strategy",
+  "Platformer",
+  "Simulation",
+  "Puzzle",
+] as const;
+
+export type DiscoverGenre = (typeof DISCOVER_GENRES)[number];
+
+/** Discover genre option → the IGDB genre name(s) it matches. */
+export const DISCOVER_GENRE_ALIASES: Record<string, readonly string[]> = {
+  Action: ["Fighting", "Hack and slash/Beat 'em up", "Arcade"],
+  RPG: ["Role-playing (RPG)"],
+  Shooter: ["Shooter"],
+  Adventure: ["Adventure", "Point-and-click"],
+  Sports: ["Sport"],
+  Racing: ["Racing"],
+  Indie: ["Indie"],
+  Strategy: ["Strategy", "Real Time Strategy (RTS)", "Turn-based strategy (TBS)", "Tactical"],
+  Platformer: ["Platform"],
+  Simulation: ["Simulator"],
+  Puzzle: ["Puzzle", "Quiz/Trivia", "Card & Board Game"],
+};
+
+/** IGDB genre names to filter by for a Discover genre option (empty = all). */
+export function igdbGenreNamesFor(genre: string): string[] {
+  if (!genre) return [];
+  const aliases = DISCOVER_GENRE_ALIASES[genre];
+  return aliases ? [...aliases] : [genre];
+}
+
+/** True when any of a mapped game's genres matches the option's aliases. */
+export function gameMatchesDiscoverGenre(gameGenres: unknown, genre: string): boolean {
+  if (!genre) return true;
+  if (!Array.isArray(gameGenres)) return false;
+  const aliases = (DISCOVER_GENRE_ALIASES[genre] ?? [genre]).map((a) => a.toLowerCase());
+  return gameGenres.some(
+    (g: unknown) => typeof g === "string" && aliases.includes(g.toLowerCase())
+  );
+}
